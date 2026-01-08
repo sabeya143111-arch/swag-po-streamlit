@@ -1,4 +1,4 @@
-# app.py  (SWAG PO Creator – EN + AR language, clean UI, multi‑company)
+# app.py  (SWAG PO Creator – EN+AR, light UI, multi‑company, confirm step)
 
 import streamlit as st
 import pandas as pd
@@ -154,30 +154,35 @@ T = {
 def tr(key):
     return T.get(key, {}).get(st.session_state.lang, T.get(key, {}).get("en", key))
 
-# ========= LIGHT CSS =========
+# ========= LIGHT BACKGROUND + CARDS CSS =========
 st.markdown(
     """
     <style>
     .stApp {
-        background: linear-gradient(135deg, #020617 0%, #020617 55%, #0b1120 100%);
-        color: #e5e7eb;
-        font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background-color: #f3f4f6;           /* light grey page */
+        color: #111827;                      /* dark text */
+        font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont,
+                     "Segoe UI", sans-serif;
     }
     .main-title {
         font-size: 2.3rem;
         font-weight: 800;
         margin-bottom: 0.2rem;
-        background: linear-gradient(90deg, #38bdf8, #a855f7, #f97316);
+        background: linear-gradient(90deg, #2563eb, #7c3aed, #f97316);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
     }
-    .sub-caption { font-size: 0.95rem; color: #9ca3af; margin-bottom: 0.6rem; }
+    .sub-caption {
+        font-size: 0.95rem;
+        color: #4b5563;
+        margin-bottom: 0.6rem;
+    }
     .glass-card {
-        background: rgba(15, 23, 42, 0.85);
+        background: #ffffff;                 /* white cards */
         border-radius: 16px;
         padding: 1.2rem 1.4rem;
-        border: 1px solid rgba(148, 163, 184, 0.35);
-        box-shadow: 0 12px 32px rgba(15, 23, 42, 0.75);
+        border: 1px solid #e5e7eb;
+        box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
     }
     .metric-pill {
         border-radius: 999px;
@@ -185,8 +190,8 @@ st.markdown(
         font-size: 0.78rem;
         text-transform: uppercase;
         letter-spacing: 0.08em;
-        background: rgba(148, 163, 184, 0.18);
-        color: #e5e7eb;
+        background: #e5f0ff;
+        color: #111827;
         display: inline-flex;
         align-items: center;
         gap: 0.35rem;
@@ -201,40 +206,36 @@ st.markdown(
         gap: 0.3rem;
     }
     .info-badge {
-        background: rgba(56, 189, 248, 0.18);
-        border: 1px solid rgba(56, 189, 248, 0.6);
-        color: #e0f2fe;
+        background: #e0f2fe;
+        border: 1px solid #bae6fd;
+        color: #0f172a;
     }
     .warn-badge {
-        background: rgba(248, 113, 113, 0.16);
-        border: 1px solid rgba(248, 113, 113, 0.6);
-        color: #fee2e2;
+        background: #fee2e2;
+        border: 1px solid #fecaca;
+        color: #7f1d1d;
     }
-    .accent-text { color: #e5e7eb; font-weight: 500; }
     .upload-box > div[data-testid="stFileUploader"] {
-        background: rgba(15, 23, 42, 0.92);
+        background: #ffffff;
         border-radius: 12px;
         padding: 1rem;
-        border: 1px dashed rgba(148, 163, 184, 0.6);
+        border: 1px dashed #cbd5f5;
     }
     .stButton>button {
         border-radius: 999px;
-        border: 1px solid rgba(148, 163, 184, 0.6);
+        border: 1px solid #60a5fa;
         padding: 0.45rem 1.3rem;
         font-size: 0.9rem;
         font-weight: 500;
-        background-color: #0f172a;
-        color: #e5e7eb;
+        background: linear-gradient(135deg, #3b82f6 0%, #0ea5e9 100%);
+        color: #f9fafb;
         transition: all 0.18s ease-in-out;
     }
     .stButton>button:hover {
         transform: translateY(-1px);
-        border-color: #38bdf8;
-        background: linear-gradient(135deg, #1d4ed8 0%, #0ea5e9 100%);
-        color: #f9fafb;
-        box-shadow: 0 12px 30px rgba(59, 130, 246, 0.35);
+        box-shadow: 0 10px 22px rgba(37, 99, 235, 0.35);
     }
-    .stDataFrame, .stTable { font-size: 0.9rem; }
+    .stDataFrame, .stTable { font-size: 0.9rem; color: #111827; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -253,14 +254,13 @@ with h1:
     )
 with h2:
     st.markdown(
-        f'<div style="text-align:right;" class="sub-caption">'
-        f'{tr("badge_for")}</div>',
+        f'<div style="text-align:right;" class="sub-caption">{tr("badge_for")}</div>',
         unsafe_allow_html=True,
     )
 
 st.markdown("")
 
-# ========= SIDEBAR (includes language switch) =========
+# ========= SIDEBAR (language + connection) =========
 with st.sidebar:
     st.markdown("### 🌐 " + tr("lang_label"))
     lang_choice = st.radio(
