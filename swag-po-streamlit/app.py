@@ -1,4 +1,4 @@
-# app.py  (SWAG PO Creator – Premium UI + Multi‑Company + Confirm Step)
+# app.py  (SWAG PO Creator – Clean Premium UI + Multi‑Company + Confirm Step)
 
 import streamlit as st
 import pandas as pd
@@ -6,38 +6,39 @@ from datetime import datetime
 import xmlrpc.client
 import io
 
-# ========= PAGE CONFIG & CUSTOM CSS =========
+# ========= PAGE CONFIG =========
 st.set_page_config(
     page_title="SWAG PO Creator",
     page_icon="🧾",
     layout="wide",
 )
 
-# Session state init
+# -------- Session State --------
 for key, default in {
     "company_chosen": False,
     "company_name": "",
     "company_id": None,
     "df": None,
-    "log_messages": [],
-    "missing_products": [],
-    "lines": [],
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
 
+# ========= CUSTOM CSS (clean + hover animations) =========
 st.markdown(
     """
     <style>
+    /* Background + base font */
     .stApp {
-        background: radial-gradient(circle at top left, #020617 0, #020617 40%, #000000 100%);
+        background: linear-gradient(135deg, #020617 0%, #020617 55%, #0b1120 100%);
         color: #e5e7eb;
         font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
+
+    /* Text containers */
     .main-title {
-        font-size: 2.5rem;
+        font-size: 2.4rem;
         font-weight: 800;
-        padding-bottom: 0.3rem;
+        margin-bottom: 0.2rem;
         background: linear-gradient(90deg, #38bdf8, #a855f7, #f97316);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
@@ -45,54 +46,99 @@ st.markdown(
     .sub-caption {
         font-size: 0.95rem;
         color: #9ca3af;
+        margin-bottom: 0.6rem;
     }
+
+    /* Card */
     .glass-card {
-        background: rgba(15, 23, 42, 0.88);
+        background: rgba(15, 23, 42, 0.93);
         border-radius: 18px;
-        padding: 1.3rem 1.5rem;
-        border: 1px solid rgba(148, 163, 184, 0.25);
-        box-shadow: 0 22px 60px rgba(15, 23, 42, 0.98);
+        padding: 1.4rem 1.6rem;
+        border: 1px solid rgba(148, 163, 184, 0.35);
+        box-shadow: 0 18px 45px rgba(15, 23, 42, 0.95);
     }
+
+    /* Pills / badges */
     .metric-pill {
         border-radius: 999px;
         padding: 0.25rem 0.9rem;
-        font-size: 0.75rem;
+        font-size: 0.78rem;
         text-transform: uppercase;
         letter-spacing: 0.08em;
         background: rgba(148, 163, 184, 0.18);
-        color: #cbd5f5;
+        color: #e5e7eb;
         display: inline-flex;
         align-items: center;
         gap: 0.35rem;
     }
     .metric-pill span.icon {
-        font-size: 0.9rem;
+        font-size: 0.95rem;
+    }
+    .info-badge {
+        border-radius: 999px;
+        padding: 0.25rem 0.8rem;
+        font-size: 0.78rem;
+        background: rgba(56, 189, 248, 0.18);
+        border: 1px solid rgba(56, 189, 248, 0.6);
+        color: #e0f2fe;
+    }
+    .warn-badge {
+        border-radius: 999px;
+        padding: 0.25rem 0.8rem;
+        font-size: 0.78rem;
+        background: rgba(248, 113, 113, 0.16);
+        border: 1px solid rgba(248, 113, 113, 0.6);
+        color: #fee2e2;
     }
     .accent-text {
         color: #e5e7eb;
         font-weight: 500;
     }
+
+    /* File uploader container */
     .upload-box > div[data-testid="stFileUploader"] {
-        background: rgba(15, 23, 42, 0.85);
+        background: rgba(15, 23, 42, 0.96);
         border-radius: 14px;
-        padding: 1.2rem;
+        padding: 1.15rem;
         border: 1px dashed rgba(148, 163, 184, 0.6);
     }
-    .confirm-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.4rem;
-        padding: 0.2rem 0.7rem;
+
+    /* Custom buttons (gradient + hover) */
+    .stButton>button {
         border-radius: 999px;
-        font-size: 0.75rem;
-        background: rgba(34, 197, 94, 0.15);
-        border: 1px solid rgba(34, 197, 94, 0.4);
-        color: #bbf7d0;
+        border: 1px solid rgba(148, 163, 184, 0.6);
+        padding: 0.45rem 1.3rem;
+        font-size: 0.9rem;
+        font-weight: 500;
+        background-image: linear-gradient(135deg, #0f172a 0%, #020617 100%);
+        color: #e5e7eb;
+        transition: all 0.22s ease-in-out;
+        box-shadow: 0 10px 25px rgba(15, 23, 42, 0.7);
     }
-    .danger-badge {
-        background: rgba(239, 68, 68, 0.15);
-        border: 1px solid rgba(239, 68, 68, 0.4);
-        color: #fecaca;
+    .stButton>button:hover {
+        transform: translateY(-1px) scale(1.01);
+        border-color: #38bdf8;
+        box-shadow: 0 16px 40px rgba(59, 130, 246, 0.35);
+        background-image: linear-gradient(135deg, #1d4ed8 0%, #0ea5e9 100%);
+        color: #f9fafb;
+    }
+    .stButton>button:active {
+        transform: translateY(0px) scale(0.99);
+        box-shadow: 0 8px 20px rgba(15, 23, 42, 0.85);
+    }
+
+    /* Tabs header clearer */
+    div[data-baseweb="tab-list"] {
+        background: transparent;
+        border-bottom: 1px solid rgba(148, 163, 184, 0.35);
+    }
+    button[data-baseweb="tab"] {
+        font-size: 0.9rem;
+    }
+
+    /* Dataframe container */
+    .stDataFrame, .stTable {
+        font-size: 0.85rem;
     }
     </style>
     """,
@@ -102,28 +148,28 @@ st.markdown(
 # ========= HEADER =========
 st.markdown('<p class="main-title">SWAG Purchase Order Creator</p>', unsafe_allow_html=True)
 st.markdown(
-    '<p class="sub-caption">Upload Excel → Choose Company → Confirm → Draft PO created directly in Odoo.</p>',
+    '<p class="sub-caption">Excel → Company select → Confirm → Draft Purchase Order in Odoo, multi‑company ready.</p>',
     unsafe_allow_html=True,
 )
 
-h_left, h_right = st.columns([2, 1])
-with h_left:
+h1, h2 = st.columns([2, 1])
+with h1:
     st.markdown(
         '<div class="metric-pill"><span class="icon">⚡</span>'
-        '<span>Multi‑Company • XML‑RPC • Excel Automation</span></div>',
+        '<span>XML‑RPC • Multi‑Company • Excel Automation</span></div>',
         unsafe_allow_html=True,
     )
-with h_right:
+with h2:
     st.markdown(
         '<div style="text-align:right;" class="sub-caption">'
-        'Streamlined for <span class="accent-text">Buying & Operations</span>'
+        'Designed for <span class="accent-text">Buying & Operations</span>'
         '</div>',
         unsafe_allow_html=True,
     )
 
 st.markdown("")
 
-# ========= SIDEBAR: ODOO & HELP =========
+# ========= SIDEBAR =========
 with st.sidebar:
     st.markdown("### 🔐 Odoo Connection")
     ODOO_URL = st.text_input("Odoo URL", "https://tariqueswag1231.odoo.com")
@@ -138,14 +184,13 @@ with st.sidebar:
     st.markdown("---")
     with st.expander("ℹ️ Excel Format Help", expanded=False):
         st.write(
-            "- Required columns (exact names):\n"
+            "- Required columns (names same as Odoo import):\n"
             "  - `order_line/product_id` → Internal Reference / SKU\n"
-            "  - `order_line/name` → Description\n"
+            "  - `order_line/name` → Product description\n"
             "  - `order_line/product_uom_qty` → Quantity\n"
-            "  - `order_line/price_unit` → Unit Price\n"
+            "  - `order_line/price_unit` → Unit price\n"
         )
-        st.caption("Suggestion: Export one PO from Odoo and reuse as template.")
-
+        st.caption("Tip: Ek PO Odoo se export karke usi format ko template bana lo.")
 
 connection_status = st.empty()
 
@@ -160,13 +205,12 @@ def get_odoo_connection(url, db, username, api_key):
     return db, uid, api_key, models
 
 def load_companies(models, db, uid, password):
-    companies = models.execute_kw(
+    return models.execute_kw(
         db, uid, password,
         "res.company", "search_read",
         [[]],
         {"fields": ["name"], "limit": 50},
     )
-    return companies
 
 def get_product_id_by_code(models, db, uid, password, code, context=None):
     if context is None:
@@ -179,10 +223,10 @@ def get_product_id_by_code(models, db, uid, password, code, context=None):
     )
     return product_ids[0] if product_ids else False
 
-# ========= LAYOUT: TABS =========
-tab_upload, tab_log = st.tabs(["📁 Upload & Company", "📒 Matching Log & Summary"])
+# ========= TABS =========
+tab_upload, tab_log = st.tabs(["📁 Upload & Company", "📒 Log & Result"])
 
-# ========= TAB 1: UPLOAD + COMPANY + CONFIRM =========
+# ---- TAB 1: Upload + Company + Confirm + Create ----
 with tab_upload:
     st.markdown('<div class="glass-card">', unsafe_allow_html=True)
 
@@ -191,9 +235,9 @@ with tab_upload:
         st.markdown("#### 1️⃣ Upload Excel")
         st.markdown('<div class="upload-box">', unsafe_allow_html=True)
         uploaded_file = st.file_uploader(
-            "Drop file here or browse",
+            "Drop file here or click to browse",
             type=["xlsx", "xls"],
-            help="Max ~20MB • Single sheet with header row",
+            help="Single sheet • Header row on top",
         )
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -209,11 +253,10 @@ with tab_upload:
                     db, uid, password, models = get_odoo_connection(
                         ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_API_KEY
                     )
-                    connection_status.success(f"Connected (UID: {uid})")
+                    connection_status.success(f"Connected to Odoo (UID: {uid})")
                 except Exception as e:
                     connection_status.error(f"❌ Connection failed: {e}")
 
-        # Step 1: choose company
         choose_company_clicked = st.button("🏢 Load & Choose Company", key="choose_company_btn")
         if choose_company_clicked:
             if not (ODOO_URL and ODOO_DB and ODOO_USERNAME and ODOO_API_KEY):
@@ -229,35 +272,34 @@ with tab_upload:
                     companies = []
 
                 if not companies:
-                    st.error("Koi company nahi mili; Odoo multi‑company rights check karo.")
+                    st.error("Koi company nahi mili; Odoo multi‑company access check karo.")
                 else:
                     names = [c["name"] for c in companies]
-                    company_name = st.selectbox(
+                    selected_name = st.selectbox(
                         "Step 1: Company select karo",
                         names,
                         key="company_select_runtime",
                     )
-                    if company_name:
-                        company_id = next(c["id"] for c in companies if c["name"] == company_name)
-                        st.session_state.company_name = company_name
+                    if selected_name:
+                        company_id = next(c["id"] for c in companies if c["name"] == selected_name)
+                        st.session_state.company_name = selected_name
                         st.session_state.company_id = company_id
-                        st.session_state.company_chosen = False  # wait for confirm
+                        st.session_state.company_chosen = False
 
-        # Step 2: confirm company
         if st.session_state.company_id:
             st.markdown(
-                f'<div class="confirm-badge">🏢 Selected: '
-                f'<strong>{st.session_state.company_name}</strong> (ID {st.session_state.company_id})</div>',
+                f'<div class="info-badge">Selected: {st.session_state.company_name} '
+                f'(ID {st.session_state.company_id})</div>',
                 unsafe_allow_html=True,
             )
             confirm_company = st.button("✅ Confirm Company", key="confirm_company_btn")
             if confirm_company:
                 st.session_state.company_chosen = True
-                st.success(f"Company locked: {st.session_state.company_name}")
+                st.success("Company lock ho gayi; ab PO isi company me banega.")
 
     st.markdown("---")
 
-    # Data preview after upload
+    # Data preview
     if uploaded_file is not None:
         try:
             file_bytes = uploaded_file.read()
@@ -275,13 +317,11 @@ with tab_upload:
         st.session_state.df = None
 
     st.markdown("")
-
-    # Step 3: create PO button – enabled only after company confirm
+    # Create button gating
     create_disabled = not (st.session_state.company_chosen and st.session_state.df is not None)
     if create_disabled:
         st.markdown(
-            '<div class="danger-badge">⚠️ Pehle company confirm karo '
-            'aur Excel upload karo, tabhi PO create hoga.</div>',
+            '<div class="warn-badge">Pehlay Excel upload + Company confirm karo, phir PO create kar sakte ho.</div>',
             unsafe_allow_html=True,
         )
 
@@ -294,7 +334,7 @@ with tab_upload:
 
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ========= TAB 2: LOG & SUMMARY =========
+# ---- TAB 2: Log & Summary containers ----
 with tab_log:
     st.markdown('<div class="glass-card">', unsafe_allow_html=True)
     log_area = st.empty()
@@ -302,10 +342,10 @@ with tab_log:
     missing_df_placeholder = st.empty()
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ========= MAIN: WHEN CREATE BUTTON PRESSED =========
+# ========= MAIN: CREATE PO LOGIC =========
 if create_po_clicked:
     if st.session_state.df is None:
-        st.error("Excel data missing hai; dobara upload karo.")
+        st.error("Excel data missing hai; dubara upload karo.")
         st.stop()
     if not st.session_state.company_chosen or not st.session_state.company_id:
         st.error("Company confirm nahi hui; pehle Confirm Company dabao.")
@@ -324,12 +364,12 @@ if create_po_clicked:
         db, uid, password, models = get_odoo_connection(
             ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_API_KEY
         )
-        connection_status.success(f"Connected (UID: {uid})")
+        connection_status.success(f"Connected to Odoo (UID: {uid})")
     except Exception as e:
         st.error(f"Odoo connection error: {e}")
         st.stop()
 
-    # Validate columns
+    # Required columns
     code_col = "order_line/product_id"
     name_col = "order_line/name"
     qty_col = "order_line/product_uom_qty"
@@ -340,7 +380,7 @@ if create_po_clicked:
         st.error(f"Excel me yeh columns missing hain: {missing_cols}")
         st.stop()
 
-    # Matching
+    # Product matching
     lines = []
     missing_products = []
     log_messages = []
@@ -374,10 +414,6 @@ if create_po_clicked:
 
         log_area.text("\n".join(log_messages[-20:]))
 
-    st.session_state.lines = lines
-    st.session_state.missing_products = missing_products
-    st.session_state.log_messages = log_messages
-
     matched_count = len(lines)
     total_rows = len(df)
 
@@ -397,21 +433,20 @@ if create_po_clicked:
         st.error("Koi bhi product match nahi hua, PO create nahi kar sakte.")
         st.stop()
 
-    # Prepare order lines
-    order_lines = []
-    for line in lines:
-        order_lines.append(
-            (
-                0,
-                0,
-                {
-                    "product_id": line["product_id"],
-                    "product_qty": line["product_qty"],
-                    "price_unit": line["price_unit"],
-                    "name": line["name"],
-                },
-            )
+    # Build PO values
+    order_lines = [
+        (
+            0,
+            0,
+            {
+                "product_id": line["product_id"],
+                "product_qty": line["product_qty"],
+                "price_unit": line["price_unit"],
+                "name": line["name"],
+            },
         )
+        for line in lines
+    ]
 
     po_vals = {
         "partner_id": int(DEFAULT_PARTNER_ID),
