@@ -1,4 +1,4 @@
-# app.py  (SWAG PO Creator – Clean Premium UI + Multi‑Company + Confirm Step)
+# app.py  (SWAG PO Creator – EN + AR language, clean UI, multi‑company)
 
 import streamlit as st
 import pandas as pd
@@ -13,7 +13,10 @@ st.set_page_config(
     layout="wide",
 )
 
-# -------- Session State --------
+# ========= SESSION STATE =========
+if "lang" not in st.session_state:
+    st.session_state.lang = "en"   # default english
+
 for key, default in {
     "company_chosen": False,
     "company_name": "",
@@ -23,7 +26,135 @@ for key, default in {
     if key not in st.session_state:
         st.session_state[key] = default
 
-# ========= LIGHT GLASS CSS (text clear) =========
+# ========= TRANSLATIONS (EN + AR) =========
+T = {
+    "title": {
+        "en": "SWAG Purchase Order Creator",
+        "ar": "منشئ أوامر الشراء SWAG",
+    },
+    "subtitle": {
+        "en": "Upload Excel → Choose company → Confirm → Draft Purchase Order in Odoo.",
+        "ar": "ارفع ملف إكسل → اختر الشركة → تأكيد → إنشاء أمر شراء مسودة في أودو.",
+    },
+    "badge_main": {
+        "en": "Multi‑Company • XML‑RPC • Excel Automation",
+        "ar": "متعدد الشركات • XML‑RPC • أتمتة من إكسل",
+    },
+    "badge_for": {
+        "en": "Made for Buying & Operations",
+        "ar": "مخصص لقسم المشتريات والعمليات",
+    },
+    "sidebar_conn": {"en": "Odoo Connection", "ar": "اتصال أودو"},
+    "odoo_url": {"en": "Odoo URL", "ar": "رابط أودو"},
+    "db": {"en": "Database", "ar": "قاعدة البيانات"},
+    "username": {"en": "Username / Email", "ar": "اسم المستخدم / البريد الإلكتروني"},
+    "api_key": {"en": "API Key / Password", "ar": "مفتاح API / كلمة المرور"},
+    "sidebar_defaults": {"en": "Default Settings", "ar": "الإعدادات الافتراضية"},
+    "default_supplier": {"en": "Default Supplier ID", "ar": "معرّف المورد الافتراضي"},
+    "excel_help_title": {"en": "Excel Format Help", "ar": "مساعدة في تنسيق الإكسل"},
+    "excel_help_text": {
+        "en": (
+            "- Required columns (exact names):\n"
+            "  - `order_line/product_id` → Internal Reference / SKU\n"
+            "  - `order_line/name` → Description\n"
+            "  - `order_line/product_uom_qty` → Quantity\n"
+            "  - `order_line/price_unit` → Unit Price\n"
+        ),
+        "ar": (
+            "- الأعمدة المطلوبة (بنفس الأسماء):\n"
+            "  - `order_line/product_id` → الكود الداخلي / SKU\n"
+            "  - `order_line/name` → الوصف\n"
+            "  - `order_line/product_uom_qty` → الكمية\n"
+            "  - `order_line/price_unit` → سعر الوحدة\n"
+        ),
+    },
+    "excel_tip": {
+        "en": "Tip: Export a PO from Odoo and reuse its format.",
+        "ar": "نصيحة: صدّر أمر شراء من أودو واستخدمه كقالب.",
+    },
+    "tab_upload": {"en": "📁 Upload & Company", "ar": "📁 رفع الملف و اختيار الشركة"},
+    "tab_log": {"en": "📒 Log & PO Result", "ar": "📒 السجل و نتيجة أمر الشراء"},
+    "step1_upload": {"en": "1️⃣ Upload Excel", "ar": "1️⃣ رفع ملف الإكسل"},
+    "uploader_label": {
+        "en": "Drop file here or click to browse",
+        "ar": "أسقط الملف هنا أو اضغط للاختيار",
+    },
+    "uploader_help": {
+        "en": "Single sheet with header row on top.",
+        "ar": "ورقة واحدة مع صف عناوين في الأعلى.",
+    },
+    "step2_company": {"en": "2️⃣ Connect & Choose Company", "ar": "2️⃣ الاتصال واختيار الشركة"},
+    "btn_test_conn": {"en": "🔄 Test Odoo Connection", "ar": "🔄 تجربة الاتصال بأودو"},
+    "btn_load_company": {"en": "🏢 Load & Choose Company", "ar": "🏢 تحميل واختيار الشركة"},
+    "select_company_label": {
+        "en": "Step 1: Select company",
+        "ar": "الخطوة 1: اختر الشركة",
+    },
+    "selected_company_badge": {
+        "en": "Selected",
+        "ar": "الشركة المختارة",
+    },
+    "btn_confirm_company": {"en": "✅ Confirm Company", "ar": "✅ تأكيد الشركة"},
+    "company_locked": {
+        "en": "Company locked; PO will be created in this company.",
+        "ar": "تم تثبيت الشركة؛ سيتم إنشاء أمر الشراء على هذه الشركة.",
+    },
+    "step3_preview": {"en": "3️⃣ Data Preview", "ar": "3️⃣ معاينة البيانات"},
+    "guard_msg": {
+        "en": "Upload Excel and confirm company before creating PO.",
+        "ar": "ارفع ملف الإكسل وأكّد الشركة قبل إنشاء أمر الشراء.",
+    },
+    "btn_create_po": {
+        "en": "🚀 Create Draft Purchase Order",
+        "ar": "🚀 إنشاء أمر شراء (مسودة)",
+    },
+    "err_fill_conn": {
+        "en": "Fill Odoo connection details in sidebar.",
+        "ar": "املأ تفاصيل اتصال أودو في الشريط الجانبي.",
+    },
+    "err_upload_first": {
+        "en": "Please upload an Excel file first.",
+        "ar": "من فضلك ارفع ملف الإكسل أولاً.",
+    },
+    "err_company_not_confirmed": {
+        "en": "Company is not confirmed; press Confirm Company button.",
+        "ar": "لم يتم تأكيد الشركة؛ اضغط زر تأكيد الشركة.",
+    },
+    "err_missing_cols": {
+        "en": "These columns are missing in Excel",
+        "ar": "هذه الأعمدة مفقودة في ملف الإكسل",
+    },
+    "log_missing_warning": {
+        "en": "Some products not found in Odoo – they will not be added to the PO.",
+        "ar": "بعض الأصناف غير موجودة في أودو – لن تُضاف إلى أمر الشراء.",
+    },
+    "log_no_match": {
+        "en": "No product matched; cannot create PO.",
+        "ar": "لم يتم مطابقة أي صنف؛ لا يمكن إنشاء أمر الشراء.",
+    },
+    "matched_label": {
+        "en": "Matched products",
+        "ar": "عدد الأصناف المطابقة",
+    },
+    "company_label": {"en": "Company", "ar": "الشركة"},
+    "supplier_label": {"en": "Supplier ID", "ar": "معرّف المورد"},
+    "success_po": {
+        "en": "Draft Purchase Order created",
+        "ar": "تم إنشاء أمر شراء (مسودة)",
+    },
+    "next_steps": {
+        "en": "Next in Odoo:\n- Open the PO\n- Change supplier if needed\n- Confirm, Receive and Create Bill",
+        "ar": "الخطوات التالية في أودو:\n- افتح أمر الشراء\n- غيّر المورد إذا لزم\n- أكد الأمر، استلم الكمية، وأنشئ الفاتورة",
+    },
+    "lang_label": {"en": "Language", "ar": "اللغة"},
+    "lang_en": {"en": "English", "ar": "الإنجليزية"},
+    "lang_ar": {"en": "Arabic", "ar": "العربية"},
+}
+
+def tr(key):
+    return T.get(key, {}).get(st.session_state.lang, T.get(key, {}).get("en", key))
+
+# ========= LIGHT CSS =========
 st.markdown(
     """
     <style>
@@ -40,17 +171,13 @@ st.markdown(
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
     }
-    .sub-caption {
-        font-size: 0.95rem;
-        color: #9ca3af;
-        margin-bottom: 0.6rem;
-    }
+    .sub-caption { font-size: 0.95rem; color: #9ca3af; margin-bottom: 0.6rem; }
     .glass-card {
-        background: rgba(15, 23, 42, 0.85);             /* lighter */
+        background: rgba(15, 23, 42, 0.85);
         border-radius: 16px;
         padding: 1.2rem 1.4rem;
         border: 1px solid rgba(148, 163, 184, 0.35);
-        box-shadow: 0 12px 32px rgba(15, 23, 42, 0.75);  /* softer shadow */
+        box-shadow: 0 12px 32px rgba(15, 23, 42, 0.75);
     }
     .metric-pill {
         border-radius: 999px;
@@ -65,7 +192,6 @@ st.markdown(
         gap: 0.35rem;
     }
     .metric-pill span.icon { font-size: 0.95rem; }
-
     .info-badge, .warn-badge {
         border-radius: 999px;
         padding: 0.25rem 0.8rem;
@@ -85,15 +211,12 @@ st.markdown(
         color: #fee2e2;
     }
     .accent-text { color: #e5e7eb; font-weight: 500; }
-
     .upload-box > div[data-testid="stFileUploader"] {
         background: rgba(15, 23, 42, 0.92);
         border-radius: 12px;
         padding: 1rem;
         border: 1px dashed rgba(148, 163, 184, 0.6);
     }
-
-    /* Buttons: light hover animation, but readable */
     .stButton>button {
         border-radius: 999px;
         border: 1px solid rgba(148, 163, 184, 0.6);
@@ -111,62 +234,57 @@ st.markdown(
         color: #f9fafb;
         box-shadow: 0 12px 30px rgba(59, 130, 246, 0.35);
     }
-
-    /* Keep default theme for dataframes so text stays clear */
-    .stDataFrame, .stTable {
-        font-size: 0.9rem;
-    }
+    .stDataFrame, .stTable { font-size: 0.9rem; }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
 # ========= HEADER =========
-st.markdown('<p class="main-title">SWAG Purchase Order Creator</p>', unsafe_allow_html=True)
-st.markdown(
-    '<p class="sub-caption">Excel upload → Company select & confirm → Draft Purchase Order in Odoo.</p>',
-    unsafe_allow_html=True,
-)
+st.markdown(f'<p class="main-title">{tr("title")}</p>', unsafe_allow_html=True)
+st.markdown(f'<p class="sub-caption">{tr("subtitle")}</p>', unsafe_allow_html=True)
 
 h1, h2 = st.columns([2, 1])
 with h1:
     st.markdown(
-        '<div class="metric-pill"><span class="icon">⚡</span>'
-        '<span>Multi‑Company • XML‑RPC • Excel Automation</span></div>',
+        f'<div class="metric-pill"><span class="icon">⚡</span>'
+        f'<span>{tr("badge_main")}</span></div>',
         unsafe_allow_html=True,
     )
 with h2:
     st.markdown(
-        '<div style="text-align:right;" class="sub-caption">'
-        'Made for <span class="accent-text">Buying & Operations</span>'
-        '</div>',
+        f'<div style="text-align:right;" class="sub-caption">'
+        f'{tr("badge_for")}</div>',
         unsafe_allow_html=True,
     )
 
 st.markdown("")
 
-# ========= SIDEBAR =========
+# ========= SIDEBAR (includes language switch) =========
 with st.sidebar:
-    st.markdown("### 🔐 Odoo Connection")
-    ODOO_URL = st.text_input("Odoo URL", "https://tariqueswag1231.odoo.com")
-    ODOO_DB = st.text_input("Database", "tariqueswag1231")
-    ODOO_USERNAME = st.text_input("Username / Email", "tarique143111@gmail.com")
-    ODOO_API_KEY = st.text_input("API Key / Password", type="password")
+    st.markdown("### 🌐 " + tr("lang_label"))
+    lang_choice = st.radio(
+        "",
+        options=["en", "ar"],
+        index=0 if st.session_state.lang == "en" else 1,
+        format_func=lambda x: tr("lang_en") if x == "en" else tr("lang_ar"),
+    )
+    st.session_state.lang = lang_choice
+
+    st.markdown("### 🔐 " + tr("sidebar_conn"))
+    ODOO_URL = st.text_input(tr("odoo_url"), "https://tariqueswag1231.odoo.com")
+    ODOO_DB = st.text_input(tr("db"), "tariqueswag1231")
+    ODOO_USERNAME = st.text_input(tr("username"), "tarique143111@gmail.com")
+    ODOO_API_KEY = st.text_input(tr("api_key"), type="password")
 
     st.markdown("---")
-    st.markdown("### 🧾 Default Settings")
-    DEFAULT_PARTNER_ID = st.number_input("Default Supplier ID", min_value=1, value=1, step=1)
+    st.markdown("### 🧾 " + tr("sidebar_defaults"))
+    DEFAULT_PARTNER_ID = st.number_input(tr("default_supplier"), min_value=1, value=1, step=1)
 
     st.markdown("---")
-    with st.expander("ℹ️ Excel Format Help", expanded=False):
-        st.write(
-            "- Required columns (exact names):\n"
-            "  - `order_line/product_id` → Internal Reference / SKU\n"
-            "  - `order_line/name` → Description\n"
-            "  - `order_line/product_uom_qty` → Quantity\n"
-            "  - `order_line/price_unit` → Unit Price\n"
-        )
-        st.caption("Best practice: Odoo se ek PO export karo aur uska format use karo.")
+    with st.expander(tr("excel_help_title"), expanded=False):
+        st.write(tr("excel_help_text"))
+        st.caption(tr("excel_tip"))
 
 connection_status = st.empty()
 
@@ -200,7 +318,7 @@ def get_product_id_by_code(models, db, uid, password, code, context=None):
     return product_ids[0] if product_ids else False
 
 # ========= TABS =========
-tab_upload, tab_log = st.tabs(["📁 Upload & Company", "📒 Log & PO Result"])
+tab_upload, tab_log = st.tabs([tr("tab_upload"), tr("tab_log")])
 
 # ---- TAB 1: Upload + Company + Confirm + Create ----
 with tab_upload:
@@ -208,21 +326,21 @@ with tab_upload:
 
     c1, c2 = st.columns([1.4, 1])
     with c1:
-        st.markdown("#### 1️⃣ Upload Excel")
+        st.markdown("#### " + tr("step1_upload"))
         st.markdown('<div class="upload-box">', unsafe_allow_html=True)
         uploaded_file = st.file_uploader(
-            "Drop file here or click to browse",
+            tr("uploader_label"),
             type=["xlsx", "xls"],
-            help="Single sheet • Header row on top",
+            help=tr("uploader_help"),
         )
         st.markdown("</div>", unsafe_allow_html=True)
 
     with c2:
-        st.markdown("#### 2️⃣ Connect & Choose Company")
+        st.markdown("#### " + tr("step2_company"))
 
-        if st.button("🔄 Test Odoo Connection", key="test_conn"):
+        if st.button(tr("btn_test_conn"), key="test_conn"):
             if not (ODOO_URL and ODOO_DB and ODOO_USERNAME and ODOO_API_KEY):
-                st.error("Sidebar me Odoo connection details complete karo.")
+                st.error(tr("err_fill_conn"))
             else:
                 try:
                     db, uid, password, models = get_odoo_connection(
@@ -230,11 +348,11 @@ with tab_upload:
                     )
                     connection_status.success(f"Connected to Odoo (UID: {uid})")
                 except Exception as e:
-                    connection_status.error(f"❌ Connection failed: {e}")
+                    connection_status.error(f"❌ {e}")
 
-        if st.button("🏢 Load & Choose Company", key="choose_company_btn"):
+        if st.button(tr("btn_load_company"), key="choose_company_btn"):
             if not (ODOO_URL and ODOO_DB and ODOO_USERNAME and ODOO_API_KEY):
-                st.error("Pehle Odoo connection details bhar do.")
+                st.error(tr("err_fill_conn"))
             else:
                 try:
                     db, uid, password, models = get_odoo_connection(
@@ -246,11 +364,11 @@ with tab_upload:
                     companies = []
 
                 if not companies:
-                    st.error("Koi company nahi mili; Odoo multi‑company access check karo.")
+                    st.error("No companies found in Odoo.")
                 else:
                     names = [c["name"] for c in companies]
                     selected_name = st.selectbox(
-                        "Step 1: Company select karo",
+                        tr("select_company_label"),
                         names,
                         key="company_select_runtime",
                     )
@@ -262,13 +380,13 @@ with tab_upload:
 
         if st.session_state.company_id:
             st.markdown(
-                f'<div class="info-badge">Selected: {st.session_state.company_name} '
-                f'(ID {st.session_state.company_id})</div>',
+                f'<div class="info-badge">{tr("selected_company_badge")}: '
+                f'{st.session_state.company_name} (ID {st.session_state.company_id})</div>',
                 unsafe_allow_html=True,
             )
-            if st.button("✅ Confirm Company", key="confirm_company_btn"):
+            if st.button(tr("btn_confirm_company"), key="confirm_company_btn"):
                 st.session_state.company_chosen = True
-                st.success("Company lock ho gayi; ab PO isi company me banega.")
+                st.success(tr("company_locked"))
 
     st.markdown("---")
 
@@ -282,7 +400,7 @@ with tab_upload:
             else:
                 df = pd.read_excel(io.BytesIO(file_bytes), engine="xlrd")
             st.session_state.df = df
-            st.markdown("#### 3️⃣ Data Preview")
+            st.markdown("#### " + tr("step3_preview"))
             st.dataframe(df.head(), use_container_width=True)
         except Exception as e:
             st.error(f"Excel read error: {e}")
@@ -290,16 +408,15 @@ with tab_upload:
         st.session_state.df = None
 
     st.markdown("")
-    # Create button guard
     create_disabled = not (st.session_state.company_chosen and st.session_state.df is not None)
     if create_disabled:
         st.markdown(
-            '<div class="warn-badge">Pehle Excel upload + Company confirm karo, phir PO create kar sakte ho.</div>',
+            f'<div class="warn-badge">{tr("guard_msg")}</div>',
             unsafe_allow_html=True,
         )
 
     create_po_clicked = st.button(
-        "🚀 Create Draft Purchase Order",
+        tr("btn_create_po"),
         type="primary",
         disabled=create_disabled,
         key="create_po_btn",
@@ -318,13 +435,13 @@ with tab_log:
 # ========= MAIN: CREATE PO LOGIC =========
 if create_po_clicked:
     if st.session_state.df is None:
-        st.error("Excel data missing hai; dubara upload karo.")
+        st.error(tr("err_upload_first"))
         st.stop()
     if not st.session_state.company_chosen or not st.session_state.company_id:
-        st.error("Company confirm nahi hui; pehle Confirm Company dabao.")
+        st.error(tr("err_company_not_confirmed"))
         st.stop()
     if not (ODOO_URL and ODOO_DB and ODOO_USERNAME and ODOO_API_KEY):
-        st.error("Odoo connection details sidebar me complete karo.")
+        st.error(tr("err_fill_conn"))
         st.stop()
 
     df = st.session_state.df
@@ -332,7 +449,6 @@ if create_po_clicked:
     company_name = st.session_state.company_name
     ctx = {"allowed_company_ids": [company_id], "company_id": company_id}
 
-    # Connect
     try:
         db, uid, password, models = get_odoo_connection(
             ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_API_KEY
@@ -342,7 +458,6 @@ if create_po_clicked:
         st.error(f"Odoo connection error: {e}")
         st.stop()
 
-    # Required columns
     code_col = "order_line/product_id"
     name_col = "order_line/name"
     qty_col = "order_line/product_uom_qty"
@@ -350,10 +465,9 @@ if create_po_clicked:
     required_cols = [code_col, name_col, qty_col, price_col]
     missing_cols = [c for c in required_cols if c not in df.columns]
     if missing_cols:
-        st.error(f"Excel me yeh columns missing hain: {missing_cols}")
+        st.error(f"{tr('err_missing_cols')}: {missing_cols}")
         st.stop()
 
-    # Product matching
     lines = []
     missing_products = []
     log_messages = []
@@ -392,18 +506,19 @@ if create_po_clicked:
 
     with tab_log:
         summary_placeholder.markdown(
-            f"**Matched products:** {matched_count}/{total_rows} rows\n\n"
-            f"**Company:** {company_name}  |  **Supplier ID:** {int(DEFAULT_PARTNER_ID)}"
+            f"**{tr('matched_label')}:** {matched_count}/{total_rows}\n\n"
+            f"**{tr('company_label')}:** {company_name}  |  "
+            f"**{tr('supplier_label')}:** {int(DEFAULT_PARTNER_ID)}"
         )
         if missing_products:
-            st.warning("Kuch products Odoo me nahi mile – ye PO me add nahi honge.")
+            st.warning(tr("log_missing_warning"))
             missing_df_placeholder.dataframe(
                 pd.DataFrame(missing_products),
                 use_container_width=True,
             )
 
     if not lines:
-        st.error("Koi bhi product match nahi hua, PO create nahi kar sakte.")
+        st.error(tr("log_no_match"))
         st.stop()
 
     order_lines = [
@@ -438,10 +553,5 @@ if create_po_clicked:
         st.error(f"Odoo PO create error: {e}")
         st.stop()
 
-    st.success(f"✅ Draft Purchase Order created in {company_name}: ID {po_id}")
-    st.info(
-        "Next steps Odoo me:\n"
-        f"- PO #{po_id} open karo\n"
-        "- Supplier change karo (agar needed ho)\n"
-        "- Confirm, Receive, aur Bill create karo"
-    )
+    st.success(f"✅ {tr('success_po')} ({company_name}) : ID {po_id}")
+    st.info(tr("next_steps"))
