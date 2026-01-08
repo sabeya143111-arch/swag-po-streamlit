@@ -23,20 +23,17 @@ for key, default in {
     if key not in st.session_state:
         st.session_state[key] = default
 
-# ========= CUSTOM CSS (clean + hover animations) =========
+# ========= LIGHT GLASS CSS (text clear) =========
 st.markdown(
     """
     <style>
-    /* Background + base font */
     .stApp {
         background: linear-gradient(135deg, #020617 0%, #020617 55%, #0b1120 100%);
         color: #e5e7eb;
         font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
-
-    /* Text containers */
     .main-title {
-        font-size: 2.4rem;
+        font-size: 2.3rem;
         font-weight: 800;
         margin-bottom: 0.2rem;
         background: linear-gradient(90deg, #38bdf8, #a855f7, #f97316);
@@ -48,17 +45,13 @@ st.markdown(
         color: #9ca3af;
         margin-bottom: 0.6rem;
     }
-
-    /* Card */
     .glass-card {
-        background: rgba(15, 23, 42, 0.93);
-        border-radius: 18px;
-        padding: 1.4rem 1.6rem;
+        background: rgba(15, 23, 42, 0.85);             /* lighter */
+        border-radius: 16px;
+        padding: 1.2rem 1.4rem;
         border: 1px solid rgba(148, 163, 184, 0.35);
-        box-shadow: 0 18px 45px rgba(15, 23, 42, 0.95);
+        box-shadow: 0 12px 32px rgba(15, 23, 42, 0.75);  /* softer shadow */
     }
-
-    /* Pills / badges */
     .metric-pill {
         border-radius: 999px;
         padding: 0.25rem 0.9rem;
@@ -71,74 +64,57 @@ st.markdown(
         align-items: center;
         gap: 0.35rem;
     }
-    .metric-pill span.icon {
-        font-size: 0.95rem;
-    }
-    .info-badge {
+    .metric-pill span.icon { font-size: 0.95rem; }
+
+    .info-badge, .warn-badge {
         border-radius: 999px;
         padding: 0.25rem 0.8rem;
         font-size: 0.78rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+    }
+    .info-badge {
         background: rgba(56, 189, 248, 0.18);
         border: 1px solid rgba(56, 189, 248, 0.6);
         color: #e0f2fe;
     }
     .warn-badge {
-        border-radius: 999px;
-        padding: 0.25rem 0.8rem;
-        font-size: 0.78rem;
         background: rgba(248, 113, 113, 0.16);
         border: 1px solid rgba(248, 113, 113, 0.6);
         color: #fee2e2;
     }
-    .accent-text {
-        color: #e5e7eb;
-        font-weight: 500;
-    }
+    .accent-text { color: #e5e7eb; font-weight: 500; }
 
-    /* File uploader container */
     .upload-box > div[data-testid="stFileUploader"] {
-        background: rgba(15, 23, 42, 0.96);
-        border-radius: 14px;
-        padding: 1.15rem;
+        background: rgba(15, 23, 42, 0.92);
+        border-radius: 12px;
+        padding: 1rem;
         border: 1px dashed rgba(148, 163, 184, 0.6);
     }
 
-    /* Custom buttons (gradient + hover) */
+    /* Buttons: light hover animation, but readable */
     .stButton>button {
         border-radius: 999px;
         border: 1px solid rgba(148, 163, 184, 0.6);
         padding: 0.45rem 1.3rem;
         font-size: 0.9rem;
         font-weight: 500;
-        background-image: linear-gradient(135deg, #0f172a 0%, #020617 100%);
+        background-color: #0f172a;
         color: #e5e7eb;
-        transition: all 0.22s ease-in-out;
-        box-shadow: 0 10px 25px rgba(15, 23, 42, 0.7);
+        transition: all 0.18s ease-in-out;
     }
     .stButton>button:hover {
-        transform: translateY(-1px) scale(1.01);
+        transform: translateY(-1px);
         border-color: #38bdf8;
-        box-shadow: 0 16px 40px rgba(59, 130, 246, 0.35);
-        background-image: linear-gradient(135deg, #1d4ed8 0%, #0ea5e9 100%);
+        background: linear-gradient(135deg, #1d4ed8 0%, #0ea5e9 100%);
         color: #f9fafb;
-    }
-    .stButton>button:active {
-        transform: translateY(0px) scale(0.99);
-        box-shadow: 0 8px 20px rgba(15, 23, 42, 0.85);
+        box-shadow: 0 12px 30px rgba(59, 130, 246, 0.35);
     }
 
-    /* Tabs header clearer */
-    div[data-baseweb="tab-list"] {
-        background: transparent;
-        border-bottom: 1px solid rgba(148, 163, 184, 0.35);
-    }
-    button[data-baseweb="tab"] {
-        font-size: 0.9rem;
-    }
-
-    /* Dataframe container */
+    /* Keep default theme for dataframes so text stays clear */
     .stDataFrame, .stTable {
-        font-size: 0.85rem;
+        font-size: 0.9rem;
     }
     </style>
     """,
@@ -148,7 +124,7 @@ st.markdown(
 # ========= HEADER =========
 st.markdown('<p class="main-title">SWAG Purchase Order Creator</p>', unsafe_allow_html=True)
 st.markdown(
-    '<p class="sub-caption">Excel → Company select → Confirm → Draft Purchase Order in Odoo, multi‑company ready.</p>',
+    '<p class="sub-caption">Excel upload → Company select & confirm → Draft Purchase Order in Odoo.</p>',
     unsafe_allow_html=True,
 )
 
@@ -156,13 +132,13 @@ h1, h2 = st.columns([2, 1])
 with h1:
     st.markdown(
         '<div class="metric-pill"><span class="icon">⚡</span>'
-        '<span>XML‑RPC • Multi‑Company • Excel Automation</span></div>',
+        '<span>Multi‑Company • XML‑RPC • Excel Automation</span></div>',
         unsafe_allow_html=True,
     )
 with h2:
     st.markdown(
         '<div style="text-align:right;" class="sub-caption">'
-        'Designed for <span class="accent-text">Buying & Operations</span>'
+        'Made for <span class="accent-text">Buying & Operations</span>'
         '</div>',
         unsafe_allow_html=True,
     )
@@ -184,17 +160,17 @@ with st.sidebar:
     st.markdown("---")
     with st.expander("ℹ️ Excel Format Help", expanded=False):
         st.write(
-            "- Required columns (names same as Odoo import):\n"
+            "- Required columns (exact names):\n"
             "  - `order_line/product_id` → Internal Reference / SKU\n"
-            "  - `order_line/name` → Product description\n"
+            "  - `order_line/name` → Description\n"
             "  - `order_line/product_uom_qty` → Quantity\n"
-            "  - `order_line/price_unit` → Unit price\n"
+            "  - `order_line/price_unit` → Unit Price\n"
         )
-        st.caption("Tip: Ek PO Odoo se export karke usi format ko template bana lo.")
+        st.caption("Best practice: Odoo se ek PO export karo aur uska format use karo.")
 
 connection_status = st.empty()
 
-# ========= XML-RPC HELPERS =========
+# ========= XML‑RPC HELPERS =========
 @st.cache_resource(show_spinner=False)
 def get_odoo_connection(url, db, username, api_key):
     common = xmlrpc.client.ServerProxy(f"{url}/xmlrpc/2/common")
@@ -224,7 +200,7 @@ def get_product_id_by_code(models, db, uid, password, code, context=None):
     return product_ids[0] if product_ids else False
 
 # ========= TABS =========
-tab_upload, tab_log = st.tabs(["📁 Upload & Company", "📒 Log & Result"])
+tab_upload, tab_log = st.tabs(["📁 Upload & Company", "📒 Log & PO Result"])
 
 # ---- TAB 1: Upload + Company + Confirm + Create ----
 with tab_upload:
@@ -244,8 +220,7 @@ with tab_upload:
     with c2:
         st.markdown("#### 2️⃣ Connect & Choose Company")
 
-        test_conn = st.button("🔄 Test Odoo Connection", key="test_conn")
-        if test_conn:
+        if st.button("🔄 Test Odoo Connection", key="test_conn"):
             if not (ODOO_URL and ODOO_DB and ODOO_USERNAME and ODOO_API_KEY):
                 st.error("Sidebar me Odoo connection details complete karo.")
             else:
@@ -257,8 +232,7 @@ with tab_upload:
                 except Exception as e:
                     connection_status.error(f"❌ Connection failed: {e}")
 
-        choose_company_clicked = st.button("🏢 Load & Choose Company", key="choose_company_btn")
-        if choose_company_clicked:
+        if st.button("🏢 Load & Choose Company", key="choose_company_btn"):
             if not (ODOO_URL and ODOO_DB and ODOO_USERNAME and ODOO_API_KEY):
                 st.error("Pehle Odoo connection details bhar do.")
             else:
@@ -292,8 +266,7 @@ with tab_upload:
                 f'(ID {st.session_state.company_id})</div>',
                 unsafe_allow_html=True,
             )
-            confirm_company = st.button("✅ Confirm Company", key="confirm_company_btn")
-            if confirm_company:
+            if st.button("✅ Confirm Company", key="confirm_company_btn"):
                 st.session_state.company_chosen = True
                 st.success("Company lock ho gayi; ab PO isi company me banega.")
 
@@ -317,11 +290,11 @@ with tab_upload:
         st.session_state.df = None
 
     st.markdown("")
-    # Create button gating
+    # Create button guard
     create_disabled = not (st.session_state.company_chosen and st.session_state.df is not None)
     if create_disabled:
         st.markdown(
-            '<div class="warn-badge">Pehlay Excel upload + Company confirm karo, phir PO create kar sakte ho.</div>',
+            '<div class="warn-badge">Pehle Excel upload + Company confirm karo, phir PO create kar sakte ho.</div>',
             unsafe_allow_html=True,
         )
 
@@ -433,7 +406,6 @@ if create_po_clicked:
         st.error("Koi bhi product match nahi hua, PO create nahi kar sakte.")
         st.stop()
 
-    # Build PO values
     order_lines = [
         (
             0,
@@ -455,7 +427,6 @@ if create_po_clicked:
         "order_line": order_lines,
     }
 
-    # Create PO
     try:
         po_id = models.execute_kw(
             db, uid, password,
