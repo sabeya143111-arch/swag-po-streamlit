@@ -1,4 +1,4 @@
-# app.py  (SWAG PO Creator – EN+AR, light UI, multi‑company, confirm step + missing product create)
+# app.py  (SWAG PO Creator – EN+AR, light UI, multi‑company, confirm step + missing product one‑by‑one creator)
 
 import streamlit as st
 import pandas as pd
@@ -511,70 +511,104 @@ if create_po_clicked:
             f"**{tr('supplier_label')}:** {int(DEFAULT_PARTNER_ID)}"
         )
 
-        # ==== NEW: Missing product create form ====
+        # ===== Missing product one‑by‑one wizard =====
         if missing_products:
             st.warning(tr("log_missing_warning"))
 
-            missing_df = pd.DataFrame(missing_products)
-            missing_df_placeholder.dataframe(
-                missing_df,
-                use_container_width=True,
-            )
+            # store list in session so we can remove items
+            if "missing_products_list" not in st.session_state:
+                st.session_state.missing_products_list = missing_products
+            else:
+                st.session_state.missing_products_list = missing_products
 
-            st.markdown("### ➕ Create missing products")
+            mpl = st.session_state.missing_products_list
 
-            row_options = [
-                f"Row {r['Excel Row']} - {r['Internal Reference']} / {r['Description']}"
-                for r in missing_products
-            ]
-            selected_index = st.selectbox(
-                "Select missing line to create product",
-                options=range(len(row_options)),
-                format_func=lambda i: row_options[i],
-            )
+            if len(mpl) > 0:
+                missing_df_placeholder.dataframe(
+                    pd.DataFrame(mpl),
+                    use_container_width=True,
+                )
 
-            sel = missing_products[selected_index]
-            default_code = sel["Internal Reference"]
-            default_name = sel["Description"]
+                st.markdown("### ➕ Create missing products (one by one)")
 
-            with st.form(key=f"create_product_form_{selected_index}"):
-                st.write("Fill product details (Odoo product.template fields)")
+                if "current_missing_index" not in st.session_state:
+                    st.session_state.current_missing_index = 0
 
-                internal_ref = st.text_input("Internal Reference", value=default_code)
-                barcode = st.text_input("Barcode")
-                old_barcode = st.text_input("Old Barcode")
-                season = st.text_input("Season")
-                brand = st.text_input("Brand")
-                cost_price = st.number_input("Cost Price", min_value=0.0, step=0.01)
-                sale_price = st.number_input("Sales Price", min_value=0.0, step=0.01)
+                if st.session_state.current_missing_index >= len(mpl):
+                    st.session_state.current_missing_index = 0
 
-                submitted = st.form_submit_button("Create product in Odoo")
+                idx = st.session_state.current_missing_index
+                current = mpl[idx]
 
-            if submitted:
-                try:
-                    product_vals = {
-                        "name": default_name,
-                        "default_code": internal_ref,
-                        "barcode": barcode or False,
-                        "standard_price": cost_price,
-                        "list_price": sale_price,
-                        "x_old_barcode": old_barcode or False,
-                        "x_season": season or False,
-                        "x_brand": brand or False,
-                        "company_id": company_id,
-                    }
+                st.markdown(
+                    f"Working on Excel Row **{current['Excel Row']}** "
+                    f"({current['Internal Reference']} - {current['Description']})"
+                )
 
-                    template_id = models.execute_kw(
-                        db, uid, password,
-                        "product.template", "create",
-                        [product_vals],
-                        {"context": ctx},
+                with st.form(key="create_single_missing_product"):
+                    internal_ref = st.text_input(
+                        "Internal Reference",
+                        value=current["Internal Reference"],
+                        key="f_internal_ref",
+                    )
+                    barcode = st.text_input("Barcode", key="f_barcode")
+                    old_barcode = st.text_input("Old Barcode", key="f_old_barcode")
+                    season = st.text_input("Season", key="f_season")
+                    brand = st.text_input("Brand", key="f_brand")
+                    cost_price = st.number_input(
+                        "Cost Price", min_value=0.0, step=0.01, key="f_cost_price"
+                    )
+                    sale_price = st.number_input(
+                        "Sales Price", min_value=0.0, step=0.01, key="f_sale_price"
                     )
 
-                    st.success(f"✅ Product created (template ID {template_id}) for {internal_ref}")
-                    st.info("Ab dobara **Create Draft Purchase Order** button press karo taake naya product pick ho jaye.")
-                except Exception as e:
-                    st.error(f"Odoo product create error: {e}")
+                    create_clicked = st.form_submit_button("Create product in Odoo")
+                    skip_clicked = st.form_submit_button("Skip this product")
+
+                if create_clicked:
+                    try:
+                        product_vals = {
+                            "name": current["Description"],
+                            "default_code": internal_ref,
+                            "barcode": barcode or False,
+                            "standard_price": cost_price,
+                            "list_price": sale_price,
+                            # TODO: replace with your real custom field names
+                            "x_old_barcode": old_barcode or False,
+                            "x_season": season or False,
+                            "x_brand": brand or False,
+                            "company_id": company_id,
+                        }
+
+                        template_id = models.execute_kw(
+                            db, uid, password,
+                            "product.template", "create",
+                            [product_vals],
+                            {"context": ctx},
+                        )
+
+                        st.success(
+                            f"✅ Product created (template ID {template_id}) "
+                            f"for {internal_ref}"
+                        )
+
+                        mpl.pop(idx)
+                        st.session_state.missing_products_list = mpl
+
+                        if len(mpl) == 0:
+                            st.info("Sab missing products complete ho gaye. Ab upar se PO dobara create kar sakte ho.")
+                        else:
+                            st.session_state.current_missing_index = 0
+
+                    except Exception as e:
+                        st.error(f"Odoo product create error: {e}")
+
+                elif skip_clicked:
+                    if len(mpl) > 0:
+                        st.session_state.current_missing_index = (idx + 1) % len(mpl)
+                    st.info("Ye product skip kar diya, next wala dikhega.")
+            else:
+                st.success("All missing products handled, koi aur product create karne ko nahi bacha.")
 
     if not lines:
         st.error(tr("log_no_match"))
