@@ -1,4 +1,4 @@
-# app.py  (SWAG PO Creator – EN+AR, light UI, multi‑company, confirm step + missing product one‑by‑one creator)
+# app.py  (SWAG PO Creator – EN+AR, light UI, multi‑company, confirm step + missing product one‑by‑one wizard with state)
 
 import streamlit as st
 import pandas as pd
@@ -22,6 +22,9 @@ for key, default in {
     "company_name": "",
     "company_id": None,
     "df": None,
+    "po_lines": None,
+    "po_missing_products": None,
+    "current_missing_index": 0,
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -105,8 +108,8 @@ T = {
         "ar": "ارفع ملف الإكسل وأكّد الشركة قبل إنشاء أمر الشراء.",
     },
     "btn_create_po": {
-        "en": "🚀 Create Draft Purchase Order",
-        "ar": "🚀 إنشاء أمر شراء (مسودة)",
+        "en": "🚀 Scan Excel & Prepare PO",
+        "ar": "🚀 فحص الإكسل وتجهيز أمر الشراء",
     },
     "err_fill_conn": {
         "en": "Fill Odoo connection details in sidebar.",
@@ -154,7 +157,7 @@ T = {
 def tr(key):
     return T.get(key, {}).get(st.session_state.lang, T.get(key, {}).get("en", key))
 
-# ========= LIGHT BACKGROUND + CARDS CSS =========
+# ========= CSS =========
 st.markdown(
     """
     <style>
@@ -320,7 +323,7 @@ def get_product_id_by_code(models, db, uid, password, code, context=None):
 # ========= TABS =========
 tab_upload, tab_log = st.tabs([tr("tab_upload"), tr("tab_log")])
 
-# ---- TAB 1: Upload + Company + Confirm + Create ----
+# ---------------- TAB 1: Upload & Company ----------------
 with tab_upload:
     st.markdown('<div class="glass-card">', unsafe_allow_html=True)
 
@@ -424,7 +427,7 @@ with tab_upload:
 
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ---- TAB 2: Log & Summary containers ----
+# ---------------- TAB 2: Containers ----------------
 with tab_log:
     st.markdown('<div class="glass-card">', unsafe_allow_html=True)
     log_area = st.empty()
@@ -432,7 +435,7 @@ with tab_log:
     missing_df_placeholder = st.empty()
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ========= MAIN: CREATE PO LOGIC =========
+# ========= STEP 1: Scan Excel & store in state =========
 if create_po_clicked:
     if st.session_state.df is None:
         st.error(tr("err_upload_first"))
@@ -478,7 +481,15 @@ if create_po_clicked:
         qty = float(row[qty_col])
         price = float(row[price_col])
 
-        product_id = get_product_id_by_code(models, db, uid, password, code, context=ctx)
+        try:
+            db, uid, password, models = get_odoo_connection(
+                ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_API_KEY
+            )
+            product_id = get_product_id_by_code(models, db, uid, password, code, context=ctx)
+        except Exception as e:
+            product_id = False
+            log_messages.append(f"⚠ Row {idx+2}: {code} lookup error: {e}")
+
         if not product_id:
             missing_products.append(
                 {
@@ -499,68 +510,101 @@ if create_po_clicked:
             )
             log_messages.append(f"✅ Row {idx+2}: {code} → Product ID {product_id}")
 
+    # store result in state
+    st.session_state.po_lines = lines
+    st.session_state.po_missing_products = missing_products
+    st.session_state.company_snapshot = {
+        "company_id": company_id,
+        "company_name": company_name,
+        "ctx": ctx,
+        "ODOO_URL": ODOO_URL,
+        "ODOO_DB": ODOO_DB,
+        "ODOO_USERNAME": ODOO_USERNAME,
+        "ODOO_API_KEY": ODOO_API_KEY,
+    }
+    st.session_state.log_messages = log_messages
+    st.session_state.current_missing_index = 0
+
+# ========= STEP 2: Always show Log tab + wizard =========
+with tab_log:
+    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+    log_area = st.empty()
+    summary_placeholder = st.empty()
+    missing_df_placeholder = st.empty()
+
+    lines = st.session_state.po_lines or []
+    missing_products = st.session_state.po_missing_products or []
+    log_messages = st.session_state.get("log_messages", [])
+    company_snapshot = st.session_state.get("company_snapshot", {})
+
+    if log_messages:
         log_area.text("\n".join(log_messages[-20:]))
 
-    matched_count = len(lines)
-    total_rows = len(df)
-
-    with tab_log:
+    if company_snapshot:
+        company_name = company_snapshot["company_name"]
         summary_placeholder.markdown(
-            f"**{tr('matched_label')}:** {matched_count}/{total_rows}\n\n"
+            f"**{tr('matched_label')}:** {len(lines)}/{len(lines) + len(missing_products)}\n\n"
             f"**{tr('company_label')}:** {company_name}  |  "
             f"**{tr('supplier_label')}:** {int(DEFAULT_PARTNER_ID)}"
         )
 
-        # ===== Missing product one‑by‑one wizard =====
-        if missing_products:
-            st.warning(tr("log_missing_warning"))
+    # ----- Missing product one‑by‑one wizard -----
+    if missing_products:
+        st.warning(tr("log_missing_warning"))
 
-            # list ko session_state me store karo
-            st.session_state.missing_products_list = missing_products
-            mpl = st.session_state.missing_products_list
+        missing_df_placeholder.dataframe(
+            pd.DataFrame(missing_products),
+            use_container_width=True,
+        )
 
-            if len(mpl) > 0:
-                missing_df_placeholder.dataframe(
-                    pd.DataFrame(mpl),
-                    use_container_width=True,
+        st.markdown("### ➕ Create missing products (one by one)")
+
+        idx = st.session_state.current_missing_index
+        if idx >= len(missing_products):
+            idx = 0
+            st.session_state.current_missing_index = 0
+
+        current = missing_products[idx]
+        st.markdown(
+            f"Working on Excel Row **{current['Excel Row']}** "
+            f"({current['Internal Reference']} - {current['Description']})"
+        )
+
+        with st.form(key="create_single_missing_product"):
+            internal_ref = st.text_input(
+                "Internal Reference",
+                value=current["Internal Reference"],
+                key="f_internal_ref",
+            )
+            barcode = st.text_input("Barcode", key="f_barcode")
+            old_barcode = st.text_input("Old Barcode", key="f_old_barcode")
+            season = st.text_input("Season", key="f_season")
+            brand = st.text_input("Brand", key="f_brand")
+            cost_price = st.number_input(
+                "Cost Price", min_value=0.0, step=0.01, key="f_cost_price"
+            )
+            sale_price = st.number_input(
+                "Sales Price", min_value=0.0, step=0.01, key="f_sale_price"
+            )
+
+            create_clicked = st.form_submit_button("Create product in Odoo")
+            skip_clicked = st.form_submit_button("Skip this product")
+
+        if create_clicked or skip_clicked:
+            # re‑connect
+            try:
+                ODOO_URL = company_snapshot["ODOO_URL"]
+                ODOO_DB = company_snapshot["ODOO_DB"]
+                ODOO_USERNAME = company_snapshot["ODOO_USERNAME"]
+                ODOO_API_KEY = company_snapshot["ODOO_API_KEY"]
+                company_id = company_snapshot["company_id"]
+                ctx = company_snapshot["ctx"]
+                db, uid, password, models = get_odoo_connection(
+                    ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_API_KEY
                 )
-
-                st.markdown("### ➕ Create missing products (one by one)")
-
-                if "current_missing_index" not in st.session_state:
-                    st.session_state.current_missing_index = 0
-
-                if st.session_state.current_missing_index >= len(mpl):
-                    st.session_state.current_missing_index = 0
-
-                idx = st.session_state.current_missing_index
-                current = mpl[idx]
-
-                st.markdown(
-                    f"Working on Excel Row **{current['Excel Row']}** "
-                    f"({current['Internal Reference']} - {current['Description']})"
-                )
-
-                with st.form(key="create_single_missing_product"):
-                    internal_ref = st.text_input(
-                        "Internal Reference",
-                        value=current["Internal Reference"],
-                        key="f_internal_ref",
-                    )
-                    barcode = st.text_input("Barcode", key="f_barcode")
-                    old_barcode = st.text_input("Old Barcode", key="f_old_barcode")
-                    season = st.text_input("Season", key="f_season")
-                    brand = st.text_input("Brand", key="f_brand")
-                    cost_price = st.number_input(
-                        "Cost Price", min_value=0.0, step=0.01, key="f_cost_price"
-                    )
-                    sale_price = st.number_input(
-                        "Sales Price", min_value=0.0, step=0.01, key="f_sale_price"
-                    )
-
-                    create_clicked = st.form_submit_button("Create product in Odoo")
-                    skip_clicked = st.form_submit_button("Skip this product")
-
+            except Exception as e:
+                st.error(f"Odoo connection error (product create): {e}")
+            else:
                 if create_clicked:
                     try:
                         product_vals = {
@@ -569,7 +613,7 @@ if create_po_clicked:
                             "barcode": barcode or False,
                             "standard_price": cost_price,
                             "list_price": sale_price,
-                            # yahan apne Odoo ke real custom field names lagana
+                            # apne Odoo ke custom fields ke naam yahan daalo:
                             "x_old_barcode": old_barcode or False,
                             "x_season": season or False,
                             "x_brand": brand or False,
@@ -588,60 +632,66 @@ if create_po_clicked:
                             f"for {internal_ref}"
                         )
 
-                        mpl.pop(idx)
-                        st.session_state.missing_products_list = mpl
-
-                        if len(mpl) == 0:
-                            st.info("Sab missing products complete ho gaye. Ab upar se PO dobara create karo taaki sab lines match ho jayein.")
-                        else:
-                            st.session_state.current_missing_index = 0
+                        # current item remove
+                        missing_products.pop(idx)
+                        st.session_state.po_missing_products = missing_products
+                        st.session_state.current_missing_index = 0
 
                     except Exception as e:
                         st.error(f"Odoo product create error: {e}")
-
                 elif skip_clicked:
-                    if len(mpl) > 0:
-                        st.session_state.current_missing_index = (idx + 1) % len(mpl)
-                    st.info("Ye product skip kar diya, next wala dikhega.")
+                    st.session_state.current_missing_index = (idx + 1) % len(missing_products)
 
+    else:
+        if company_snapshot:
+            st.info("No missing products. You can now create Purchase Order.")
+
+    # ----- Final PO create button (after products ready) -----
+    if lines:
+        st.markdown("---")
+        if st.button("🚀 Create Draft Purchase Order in Odoo (using matched lines)"):
+            try:
+                ODOO_URL = company_snapshot["ODOO_URL"]
+                ODOO_DB = company_snapshot["ODOO_DB"]
+                ODOO_USERNAME = company_snapshot["ODOO_USERNAME"]
+                ODOO_API_KEY = company_snapshot["ODOO_API_KEY"]
+                company_id = company_snapshot["company_id"]
+                ctx = company_snapshot["ctx"]
+                db, uid, password, models = get_odoo_connection(
+                    ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_API_KEY
+                )
+            except Exception as e:
+                st.error(f"Odoo connection error (PO create): {e}")
             else:
-                st.success("All missing products handled, koi aur product create karne ko nahi bacha.")
+                order_lines = [
+                    (
+                        0,
+                        0,
+                        {
+                            "product_id": line["product_id"],
+                            "product_qty": line["product_qty"],
+                            "price_unit": line["price_unit"],
+                            "name": line["name"],
+                        },
+                    )
+                    for line in lines
+                ]
+                po_vals = {
+                    "partner_id": int(DEFAULT_PARTNER_ID),
+                    "date_order": datetime.now().strftime("%Y-%m-%d"),
+                    "company_id": company_id,
+                    "order_line": order_lines,
+                }
+                try:
+                    po_id = models.execute_kw(
+                        db, uid, password,
+                        "purchase.order", "create",
+                        [po_vals],
+                        {"context": ctx},
+                    )
+                    st.success(f"✅ {tr('success_po')} ({company_snapshot['company_name']}) : ID {po_id}")
+                    st.info(tr("next_steps"))
+                except Exception as e:
+                    st.error(f"Odoo PO create error: {e}")
 
-    if not lines:
-        st.error(tr("log_no_match"))
-        st.stop()
-
-    order_lines = [
-        (
-            0,
-            0,
-            {
-                "product_id": line["product_id"],
-                "product_qty": line["product_qty"],
-                "price_unit": line["price_unit"],
-                "name": line["name"],
-            },
-        )
-        for line in lines
-    ]
-
-    po_vals = {
-        "partner_id": int(DEFAULT_PARTNER_ID),
-        "date_order": datetime.now().strftime("%Y-%m-%d"),
-        "company_id": company_id,
-        "order_line": order_lines,
-    }
-
-    try:
-        po_id = models.execute_kw(
-            db, uid, password,
-            "purchase.order", "create",
-            [po_vals],
-            {"context": ctx},
-        )
-    except Exception as e:
-        st.error(f"Odoo PO create error: {e}")
-        st.stop()
-
-    st.success(f"✅ {tr('success_po')} ({company_name}) : ID {po_id}")
-    st.info(tr("next_steps"))
+    st.markdown("</div>", unsafe_allow_html=True)
