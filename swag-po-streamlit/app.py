@@ -1,5 +1,3 @@
-# app.py  (SWAG PO Creator – Excel + PDF invoice to PO, text-based PDF parser)
-
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -31,6 +29,9 @@ for key, default in {
     "picking_type_id": None,
     "distribution_id": None,
     "pdf_total": None,
+    "selected_rows": None,   # uploaded file selected lines
+    "rfq_df": None,          # existing RFQ dataframe
+    "selected_rfq_ids": [],  # selected RFQ IDs
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -44,14 +45,6 @@ T = {
     "subtitle": {
         "en": "Upload Excel or PDF invoice → Clean draft Purchase Order in Odoo.",
         "ar": "ارفع ملف إكسل أو فاتورة PDF → إنشاء أمر شراء مسودة في أودو.",
-    },
-    "badge_main": {
-        "en": "Excel + PDF • XML‑RPC • Automation",
-        "ar": "إكسل + PDF • XML‑RPC • أتمتة",
-    },
-    "badge_for": {
-        "en": "Made for Buying & Operations",
-        "ar": "مخصص لقسم المشتريات والعمليات",
     },
     "sidebar_conn": {"en": "Odoo Connection", "ar": "اتصال أودو"},
     "odoo_url": {"en": "Odoo URL", "ar": "رابط أودو"},
@@ -291,15 +284,32 @@ def load_distributions(models, db, uid, password):
     )
     return dists
 
-# ========= PDF PARSER (TX2442-style model + total) =========
+# ---------- NEW: RFQ helpers ----------
+def load_rfq(models, db, uid, password, company_id=None, limit=100):
+    domain = [['state', 'in', ['draft', 'sent']]]  # RFQ only
+    if company_id:
+        domain.append(['company_id', '=', company_id])
+    rfqs = models.execute_kw(
+        db, uid, password,
+        "purchase.order", "search_read",
+        [domain],
+        {"fields": ["name", "partner_id", "date_order", "amount_total", "state", "company_id"], "limit": limit},
+    )
+    return rfqs  # [web:29][web:38]
+
+def confirm_rfq(models, db, uid, password, rfq_ids, ctx=None):
+    if not rfq_ids:
+        return
+    ctx = ctx or {}
+    models.execute_kw(
+        db, uid, password,
+        "purchase.order", "button_confirm",
+        [rfq_ids],
+        {"context": ctx},
+    )  # [web:40]
+
+# ========= PDF PARSER =========
 def parse_swag_pdf_to_df(file_bytes: bytes) -> pd.DataFrame:
-    """
-    Parse SWAG invoice PDF into:
-    - order_line/name  -> model code (e.g. TX2442)
-    - order_line/product_uom_qty -> quantity
-    - order_line/price_unit -> unit price
-    Also sets st.session_state.pdf_total = last SR amount in the PDF.
-    """
     import re
     rows = []
 
@@ -575,6 +585,7 @@ with tab_upload:
 
     st.markdown("---")
 
+    # ========= FILE PARSE + SELECTION UI =========
     if 'uploaded_file' in locals() and uploaded_file is not None:
         try:
             file_bytes = uploaded_file.read()
@@ -588,8 +599,39 @@ with tab_upload:
             else:
                 df = parse_swag_pdf_to_df(file_bytes)
             st.session_state.df = df
+
             st.markdown("#### " + tr("step3_preview"))
-            st.dataframe(df, use_container_width=True)
+
+            # --- selectable dataframe for uploaded lines ---
+            event = st.dataframe(
+                df,
+                use_container_width=True,
+                on_select="rerun",
+                selection_mode="multi-row",
+            )  # [web:11]
+
+            total_rows = len(df)
+            if st.session_state.selected_rows is None:
+                st.session_state.selected_rows = list(range(total_rows))
+
+            st.markdown("")
+            select_all_checkbox = st.checkbox(
+                "Select all uploaded lines",
+                value=len(st.session_state.selected_rows) == total_rows and total_rows > 0,
+                help="Tick to select all lines, untick to use manual selection.",
+            )
+
+            selected_from_df = event.selection.rows if event is not None else []
+
+            if select_all_checkbox:
+                st.session_state.selected_rows = list(range(total_rows))
+            else:
+                if selected_from_df:
+                    st.session_state.selected_rows = selected_from_df
+
+            st.caption(
+                f"Selected uploaded lines for PO: {len(st.session_state.selected_rows)} / {total_rows}"
+            )
 
             if source == "pdf" and st.session_state.get("pdf_total") is not None:
                 st.info(f"Invoice total (from PDF): SR {st.session_state.pdf_total:,.2f}")
@@ -597,6 +639,7 @@ with tab_upload:
             st.error(f"File read / parse error: {e}")
     else:
         st.session_state.df = None
+        st.session_state.selected_rows = None
 
     st.markdown("")
     create_disabled = not (
@@ -604,6 +647,8 @@ with tab_upload:
         and st.session_state.df is not None
         and st.session_state.vendor_id
         and st.session_state.picking_type_id
+        and st.session_state.selected_rows is not None
+        and len(st.session_state.selected_rows) > 0
     )
     if create_disabled:
         st.markdown(
@@ -620,15 +665,138 @@ with tab_upload:
 
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ---------------- TAB 2: containers ----------------
+# ---------------- TAB 2: Log + Existing RFQ ----------------
 with tab_log:
     st.markdown('<div class="glass-card">', unsafe_allow_html=True)
     log_area = st.empty()
     summary_placeholder = st.empty()
     missing_df_placeholder = st.empty()
+
+    # --------- show PO log (uploaded file) ----------
+    lines = st.session_state.po_lines or []
+    missing_products = st.session_state.po_missing_products or []
+    log_messages = st.session_state.get("log_messages", [])
+    company_snapshot = st.session_state.get("company_snapshot", {})
+
+    if log_messages:
+        log_area.text("\n".join(log_messages[-20:]))
+
+    if company_snapshot:
+        company_name = company_snapshot["company_name"]
+        summary_placeholder.markdown(
+            f"**{tr('matched_label')}:** {len(lines)}/{len(lines) + len(missing_products)}  "
+            f"|  **{tr('company_label')}:** {company_name}  |  "
+            f"**Vendor ID:** {company_snapshot['vendor_id']}  |  "
+            f"**Picking Type:** {company_snapshot['picking_type_id']}"
+        )
+
+    if missing_products:
+        st.markdown(
+            f'<div class="info-badge">Missing products: {len(missing_products)}</div>',
+            unsafe_allow_html=True,
+        )
+        st.warning(tr("log_missing_warning"))
+        missing_df_placeholder.dataframe(
+            pd.DataFrame(missing_products),
+            use_container_width=True,
+        )
+
+    if lines:
+        st.markdown("---")
+        if st.button("🚀 Create Draft Purchase Order in Odoo (using selected lines)"):
+            try:
+                ODOO_URL = company_snapshot["ODOO_URL"]
+                ODOO_DB = company_snapshot["ODOO_DB"]
+                ODOO_USERNAME = company_snapshot["ODOO_USERNAME"]
+                ODOO_API_KEY = company_snapshot["ODOO_API_KEY"]
+                company_id = company_snapshot["company_id"]
+                ctx = company_snapshot["ctx"]
+                vendor_id = company_snapshot["vendor_id"]
+                picking_type_id = company_snapshot["picking_type_id"]
+                db, uid, password, models = get_odoo_connection(
+                    ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_API_KEY
+                )
+            except Exception as e:
+                st.error(f"Odoo connection error (PO create): {e}")
+            else:
+                order_lines = [(0, 0, line) for line in lines]
+                po_vals = {
+                    "partner_id": int(vendor_id),
+                    "date_order": datetime.now().strftime("%Y-%m-%d"),
+                    "company_id": company_id,
+                    "picking_type_id": picking_type_id,
+                    "order_line": order_lines,
+                }
+                try:
+                    po_id = models.execute_kw(
+                        db, uid, password,
+                        "purchase.order", "create",
+                        [po_vals],
+                        {"context": ctx},
+                    )
+                    st.success(
+                        f"✅ {tr('success_po')} ({company_snapshot['company_name']}) : ID {po_id}"
+                    )
+                except Exception as e:
+                    st.error(f"Odoo PO create error: {e}")
+
+    # --------- Existing RFQ viewer + confirm ----------
+    st.markdown("---")
+    st.markdown("### Existing RFQs in Odoo")
+
+    if ODOO_URL and ODOO_DB and ODOO_USERNAME and ODOO_API_KEY and st.session_state.company_id:
+        try:
+            db, uid, password, models = get_odoo_connection(
+                ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_API_KEY
+            )
+            rfqs = load_rfq(models, db, uid, password, st.session_state.company_id)
+            rfq_df = pd.DataFrame(rfqs)
+            st.session_state.rfq_df = rfq_df
+        except Exception as e:
+            st.error(f"RFQ load error: {e}")
+            rfq_df = pd.DataFrame()
+    else:
+        rfq_df = st.session_state.rfq_df if st.session_state.rfq_df is not None else pd.DataFrame()
+
+    if rfq_df is not None and not rfq_df.empty:
+        disp_df = rfq_df.copy()
+        # partner & company are many2one -> [id, name]
+        disp_df["vendor"] = disp_df["partner_id"].apply(lambda x: x[1] if isinstance(x, list) and len(x) > 1 else "")
+        disp_df["company"] = disp_df["company_id"].apply(lambda x: x[1] if isinstance(x, list) and len(x) > 1 else "")
+        disp_df_show = disp_df[["id", "name", "vendor", "date_order", "amount_total", "state", "company"]]
+
+        rfq_event = st.dataframe(
+            disp_df_show,
+            use_container_width=True,
+            on_select="rerun",
+            selection_mode="multi-row",
+        )  # [web:11]
+
+        rfq_selected_rows = rfq_event.selection.rows if rfq_event is not None else []
+        if rfq_selected_rows:
+            st.session_state.selected_rfq_ids = disp_df_show.iloc[rfq_selected_rows]["id"].tolist()
+
+        st.caption(f"Selected RFQs: {len(st.session_state.selected_rfq_ids)}")
+
+        if st.button("✅ Confirm selected RFQs in Odoo"):
+            if not st.session_state.selected_rfq_ids:
+                st.warning("Select at least one RFQ to confirm.")
+            else:
+                try:
+                    db, uid, password, models = get_odoo_connection(
+                        ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_API_KEY
+                    )
+                    ctx = {"allowed_company_ids": [st.session_state.company_id], "company_id": st.session_state.company_id}
+                    confirm_rfq(models, db, uid, password, st.session_state.selected_rfq_ids, ctx)
+                    st.success(f"Confirmed {len(st.session_state.selected_rfq_ids)} RFQs.")
+                except Exception as e:
+                    st.error(f"Odoo RFQ confirm error: {e}")
+    else:
+        st.info("No RFQs found (draft/sent) for this company.")
+
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ========= STEP 1: scan dataframe =========
+# ========= STEP 1: scan dataframe (only selected rows) =========
 if create_po_clicked:
     if st.session_state.df is None:
         st.error(tr("err_upload_first"))
@@ -669,7 +837,10 @@ if create_po_clicked:
     lines = []
     log_messages = []
 
-    for idx, row in df.iterrows():
+    selected_idx_list = st.session_state.selected_rows or []
+
+    for idx in selected_idx_list:
+        row = df.iloc[idx]
         name = str(row[name_col])
         qty = float(row[qty_col])
         price = float(row[price_col])
@@ -683,7 +854,9 @@ if create_po_clicked:
             line_vals["analytic_distribution_id"] = st.session_state.distribution_id
 
         lines.append(line_vals)
-        log_messages.append(f"✅ Row {idx+2}: {name} → added without product_id")
+        log_messages.append(
+            f"✅ Row {idx+2}: {name} → added (selected line, without product_id)"
+        )
 
     st.session_state.po_lines = lines
     st.session_state.po_missing_products = []
@@ -701,80 +874,3 @@ if create_po_clicked:
     }
     st.session_state.log_messages = log_messages
     st.session_state.current_missing_index = 0
-
-# ========= STEP 2: log + PO create =========
-with tab_log:
-    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
-    log_area = st.empty()
-    summary_placeholder = st.empty()
-    missing_df_placeholder = st.empty()
-
-    lines = st.session_state.po_lines or []
-    missing_products = st.session_state.po_missing_products or []
-    log_messages = st.session_state.get("log_messages", [])
-    company_snapshot = st.session_state.get("company_snapshot", {})
-
-    if log_messages:
-        log_area.text("\n".join(log_messages[-20:]))
-
-    if company_snapshot:
-        company_name = company_snapshot["company_name"]
-        summary_placeholder.markdown(
-            f"**{tr('matched_label')}:** {len(lines)}/{len(lines) + len(missing_products)}  "
-            f"|  **{tr('company_label')}:** {company_name}  |  "
-            f"**Vendor ID:** {company_snapshot['vendor_id']}  |  "
-            f"**Picking Type:** {company_snapshot['picking_type_id']}"
-        )
-
-    if missing_products:
-        st.markdown(
-            f'<div class="info-badge">Missing products: {len(missing_products)}</div>',
-            unsafe_allow_html=True,
-        )
-        st.warning(tr("log_missing_warning"))
-
-        missing_df_placeholder.dataframe(
-            pd.DataFrame(missing_products),
-            use_container_width=True,
-        )
-
-    if lines:
-        st.markdown("---")
-        if st.button("🚀 Create Draft Purchase Order in Odoo (using matched lines)"):
-            try:
-                ODOO_URL = company_snapshot["ODOO_URL"]
-                ODOO_DB = company_snapshot["ODOO_DB"]
-                ODOO_USERNAME = company_snapshot["ODOO_USERNAME"]
-                ODOO_API_KEY = company_snapshot["ODOO_API_KEY"]
-                company_id = company_snapshot["company_id"]
-                ctx = company_snapshot["ctx"]
-                vendor_id = company_snapshot["vendor_id"]
-                picking_type_id = company_snapshot["picking_type_id"]
-                db, uid, password, models = get_odoo_connection(
-                    ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_API_KEY
-                )
-            except Exception as e:
-                st.error(f"Odoo connection error (PO create): {e}")
-            else:
-                order_lines = [(0, 0, line) for line in lines]
-                po_vals = {
-                    "partner_id": int(vendor_id),
-                    "date_order": datetime.now().strftime("%Y-%m-%d"),
-                    "company_id": company_id,
-                    "picking_type_id": picking_type_id,
-                    "order_line": order_lines,
-                }
-                try:
-                    po_id = models.execute_kw(
-                        db, uid, password,
-                        "purchase.order", "create",
-                        [po_vals],
-                        {"context": ctx},
-                    )
-                    st.success(
-                        f"✅ {tr('success_po')} ({company_snapshot['company_name']}) : ID {po_id}"
-                    )
-                except Exception as e:
-                    st.error(f"Odoo PO create error: {e}")
-
-    st.markdown("</div>", unsafe_allow_html=True)
