@@ -1,4 +1,4 @@
-# app.py  (SWAG PO Creator – Excel + PDF invoice to PO)
+# app.py  (SWAG PO Creator – Excel + PDF invoice to PO, text-based PDF parser)
 
 import streamlit as st
 import pandas as pd
@@ -79,14 +79,14 @@ T = {
     "pdf_help_title": {"en": "PDF Invoice Help", "ar": "مساعدة فاتورة PDF"},
     "pdf_help_text": {
         "en": (
-            "- For this version, PDF format is same as SWAG sales invoice like sample:\n"
-            "  - Has columns: Model Number, Product Description, Quantity, Price (without tax).\n"
-            "  - Example model codes: RVH010, RVH023, DM8-0054-5, etc.\n"
+            "- PDF format same as SWAG sales invoice like sample S89631:\n"
+            "  - Lines containing totals like `SR 2,070.00` and codes like `RVH010`.\n"
+            "  - Parser pulls: model code, description, quantity, price (without tax).\n"
         ),
         "ar": (
-            "- في هذا الإصدار، شكل فاتورة PDF مثل فاتورة مبيعات SWAG:\n"
-            "  - فيها أعمدة: رقم الموديل، وصف الصنف، الكمية، السعر بدون ضريبة.\n"
-            "  - مثال الأكواد: RVH010, RVH023, DM8-0054-5 ...\n"
+            "- شكل فاتورة PDF مثل فاتورة مبيعات SWAG (نموذج S89631):\n"
+            "  - أسطر فيها الإجمالي مثل `SR 2,070.00` و كود مثل `RVH010`.\n"
+            "  - المعالج يستخرج: كود الموديل، الوصف، الكمية، السعر بدون ضريبة.\n"
         ),
     },
     "excel_tip": {
@@ -153,16 +153,11 @@ T = {
         "en": "Some products not found in Odoo – they will not be added to the PO.",
         "ar": "بعض الأصناف غير موجودة في أودو – لن تُضاف إلى أمر الشراء.",
     },
-    "log_no_match": {
-        "en": "No product matched; cannot create PO.",
-        "ar": "لم يتم مطابقة أي صنف؛ لا يمكن إنشاء أمر الشراء.",
-    },
     "matched_label": {
         "en": "Matched products",
         "ar": "عدد الأصناف المطابقة",
     },
     "company_label": {"en": "Company", "ar": "الشركة"},
-    "supplier_label": {"en": "Supplier ID", "ar": "معرّف المورد"},
     "success_po": {
         "en": "Draft Purchase Order created",
         "ar": "تم إنشاء أمر شراء (مسودة)",
@@ -227,7 +222,6 @@ st.markdown(
         align-items: center;
         gap: 0.35rem;
     }
-    .metric-pill span.icon { font-size: 1rem; }
     .info-badge, .warn-badge {
         border-radius: 999px;
         padding: 0.3rem 0.9rem;
@@ -261,8 +255,6 @@ st.markdown(
         font-weight: 500;
         background: linear-gradient(135deg, #0ea5e9 0%, #6366f1 50%, #a855f7 100%);
         color: #f9fafb;
-        box-shadow: 0 16px 35px rgba(37,99,235,0.45);
-        transition: all 0.18s ease-in-out;
     }
     </style>
     """,
@@ -325,71 +317,61 @@ def get_product_id_by_code(models, db, uid, password, code, context=None):
     )
     return product_ids[0] if product_ids else False
 
-# ========= PDF PARSER (for SWAG-style invoice) =========
+# ========= PDF PARSER (text-based for SWAG invoice) =========
 def parse_swag_pdf_to_df(file_bytes: bytes) -> pd.DataFrame:
     """
-    Parse SWAG invoice PDF (like S89631) into a DataFrame with
-    columns: order_line/product_id, order_line/name, order_line/product_uom_qty, order_line/price_unit
+    Parse SWAG invoice PDF (like S89631) into DataFrame with:
+    order_line/product_id, order_line/name, order_line/product_uom_qty, order_line/price_unit
+    Uses raw text pattern matching, robust for your sample.
     """
+    import re
     rows = []
+
     with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+        full_text = ""
         for page in pdf.pages:
-            tables = page.extract_tables()
-            for table in tables:
-                # tables is list of 2D arrays; we try to locate header row with "Model Number"
-                for r in table:
-                    if not r:
-                        continue
-                    header_row = [str(x).strip() if x is not None else "" for x in r]
-                    if "Model Number" in header_row or "ﺍﻟﻤﻮﺩﻳﻞ ﺭﻗﻢ" in header_row:
-                        header = header_row
-                        header_index = table.index(r)
-                        data_rows = table[header_index + 1:]
-                        for dr in data_rows:
-                            cells = [str(x).strip() if x is not None else "" for x in dr]
-                            # Skip empty lines
-                            if len(set(cells)) <= 1:
-                                continue
-                            # Try to map columns by position:
-                            # Expected order (from your sample):
-                            # No | Model Number | Product Description | Unit | Quantity | Price | Tax | Price Tax Inc | Total Tax Inc
-                            # We will be defensive: length check
-                            if len(cells) < 6:
-                                continue
-                            try:
-                                no = cells[0]
-                                model = cells[1]
-                                desc = cells[2]
-                                quantity_text = cells[4]
-                                price_text = cells[5]
+            t = page.extract_text() or ""
+            full_text += t + "\n"
 
-                                # Clean quantity: remove Arabic word "حبة" if merged
-                                # e.g. "30ﺣﺒﺔ" -> 30
-                                import re
-                                qty_match = re.search(r"(\d+(\.\d+)?)", quantity_text)
-                                qty = float(qty_match.group(1)) if qty_match else 0.0
+    for line in full_text.splitlines():
+        if "SR" not in line:
+            continue
+        try:
+            # All SR numbers in line
+            price_match = re.findall(r"SR\s*([\d,]+\.?\d*)", line)
+            if len(price_match) < 1:
+                continue
+            price_str = price_match[-1].replace(",", "")
+            price = float(price_str)
 
-                                # Clean price: remove SR, commas
-                                price_clean = (
-                                    price_text.replace("SR", "")
-                                    .replace("ر.س", "")
-                                    .replace(",", "")
-                                    .strip()
-                                )
-                                price = float(price_clean) if price_clean else 0.0
+            # Quantity immediately after that price
+            qty_match = re.search(rf"{price_str}[^\d]+(\d+)", line)
+            if not qty_match:
+                continue
+            qty = float(qty_match.group(1))
 
-                                if model and qty > 0 and price > 0:
-                                    rows.append(
-                                        {
-                                            "order_line/product_id": model,
-                                            "order_line/name": desc,
-                                            "order_line/product_uom_qty": qty,
-                                            "order_line/price_unit": price,
-                                        }
-                                    )
-                            except Exception:
-                                # ignore this row if parse fails
-                                continue
+            # Model code at end (letters/digits/-)
+            model_match = re.search(r"([A-Za-z0-9\-]+)\s*$", line)
+            if not model_match:
+                continue
+            model = model_match.group(1)
+
+            # Description between quantity and model
+            desc_part = line
+            desc_part = re.sub(rf"^.*?{qty}\D+", "", desc_part)
+            desc_part = desc_part.replace(model, "").strip()
+
+            rows.append(
+                {
+                    "order_line/product_id": model,
+                    "order_line/name": desc_part,
+                    "order_line/product_uom_qty": qty,
+                    "order_line/price_unit": price,
+                }
+            )
+        except Exception:
+            continue
+
     if not rows:
         return pd.DataFrame(
             columns=[
@@ -405,21 +387,7 @@ def parse_swag_pdf_to_df(file_bytes: bytes) -> pd.DataFrame:
 st.markdown(f'<p class="main-title">{tr("title")}</p>', unsafe_allow_html=True)
 st.markdown(f'<p class="sub-caption">{tr("subtitle")}</p>', unsafe_allow_html=True)
 
-h1, h2 = st.columns([2, 1])
-with h1:
-    st.markdown(
-        f'<div class="metric-pill"><span class="icon">⚡</span>'
-        f'<span>{tr("badge_main")}</span></div>',
-        unsafe_allow_html=True,
-    )
-with h2:
-    st.markdown(
-        f'<div style="text-align:right;" class="sub-caption">{tr("badge_for")}</div>',
-        unsafe_allow_html=True,
-    )
-
 hero_left, hero_right = st.columns([1.6, 1])
-
 with hero_left:
     st.markdown(
         """
@@ -434,7 +402,6 @@ with hero_left:
         """,
         unsafe_allow_html=True,
     )
-
 with hero_right:
     rows = len(st.session_state.df) if st.session_state.get("df") is not None else 0
     matched = len(st.session_state.po_lines) if st.session_state.get("po_lines") else 0
@@ -633,13 +600,12 @@ with tab_upload:
 
     st.markdown("---")
 
-    # Data preview
     if uploaded_file is not None:
         try:
             file_bytes = uploaded_file.read()
             if source == "excel":
-                file_ext = uploaded_file.name.split(".")[-1].lower()
-                if file_ext == "xlsx":
+                ext = uploaded_file.name.split(".")[-1].lower()
+                if ext == "xlsx":
                     df = pd.read_excel(io.BytesIO(file_bytes), engine="openpyxl")
                 else:
                     df = pd.read_excel(io.BytesIO(file_bytes), engine="xlrd")
@@ -647,7 +613,7 @@ with tab_upload:
                 df = parse_swag_pdf_to_df(file_bytes)
             st.session_state.df = df
             st.markdown("#### " + tr("step3_preview"))
-            st.dataframe(df.head(), use_container_width=True)
+            st.dataframe(df, use_container_width=True)
         except Exception as e:
             st.error(f"File read / parse error: {e}")
     else:
@@ -675,7 +641,7 @@ with tab_upload:
 
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ---------------- TAB 2: Containers ----------------
+# ---------------- TAB 2: containers ----------------
 with tab_log:
     st.markdown('<div class="glass-card">', unsafe_allow_html=True)
     log_area = st.empty()
@@ -683,7 +649,7 @@ with tab_log:
     missing_df_placeholder = st.empty()
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ========= STEP 1: Scan DataFrame & store in state =========
+# ========= STEP 1: scan dataframe =========
 if create_po_clicked:
     if st.session_state.df is None:
         st.error(tr("err_upload_first"))
@@ -778,7 +744,7 @@ if create_po_clicked:
     st.session_state.log_messages = log_messages
     st.session_state.current_missing_index = 0
 
-# ========= STEP 2: Log tab + wizard + PO create =========
+# ========= STEP 2: log + PO create =========
 with tab_log:
     st.markdown('<div class="glass-card">', unsafe_allow_html=True)
     log_area = st.empty()
@@ -802,7 +768,6 @@ with tab_log:
             f"**Picking Type:** {company_snapshot['picking_type_id']}"
         )
 
-    # Missing products wizard
     if missing_products:
         st.markdown(
             f'<div class="info-badge">Missing products: {len(missing_products)}</div>',
@@ -814,146 +779,6 @@ with tab_log:
             pd.DataFrame(missing_products),
             use_container_width=True,
         )
-
-        st.markdown("### ➕ Create missing products (one by one)")
-
-        idx = st.session_state.get("current_missing_index", 0)
-        if idx >= len(missing_products):
-            idx = 0
-            st.session_state.current_missing_index = 0
-
-        current = missing_products[idx]
-
-        st.markdown(
-            f"""
-            <div style="
-                margin-top:0.8rem;
-                margin-bottom:0.5rem;
-                padding:0.9rem 1.0rem;
-                border-radius:14px;
-                border:1px solid rgba(148,163,184,0.55);
-                background:radial-gradient(circle at top left, rgba(15,23,42,0.98), rgba(15,23,42,0.92));
-            ">
-            """,
-            unsafe_allow_html=True,
-        )
-
-        st.markdown(
-            f"Working on Excel Row **{current['Excel Row']}** "
-            f"({current['Internal Reference']} - {current['Description']})"
-        )
-
-        left_col, right_col = st.columns(2)
-
-        with st.form(key="create_single_missing_product"):
-            with left_col:
-                internal_ref = st.text_input(
-                    "Internal Reference (SKU)",
-                    value=current["Internal Reference"],
-                    key="f_internal_ref",
-                )
-                barcode = st.text_input("Barcode", key="f_barcode")
-                old_barcode = st.text_input("Old Barcode", key="f_old_barcode")
-
-            with right_col:
-                season = st.text_input("Season", key="f_season")
-                brand = st.text_input("Brand", key="f_brand")
-                cost_price = st.number_input(
-                    "Cost Price", min_value=0.0, step=0.01, key="f_cost_price"
-                )
-                sale_price = st.number_input(
-                    "Sales Price", min_value=0.0, step=0.01, key="f_sale_price"
-                )
-
-            b1, b2 = st.columns(2)
-            with b1:
-                create_clicked = st.form_submit_button("✅ Create product in Odoo")
-            with b2:
-                skip_clicked = st.form_submit_button("➡ Skip this product")
-
-        st.markdown("</div>", unsafe_allow_html=True)
-
-        if create_clicked or skip_clicked:
-            try:
-                ODOO_URL = company_snapshot["ODOO_URL"]
-                ODOO_DB = company_snapshot["ODOO_DB"]
-                ODOO_USERNAME = company_snapshot["ODOO_USERNAME"]
-                ODOO_API_KEY = company_snapshot["ODOO_API_KEY"]
-                company_id = company_snapshot["company_id"]
-                ctx = company_snapshot["ctx"]
-                db, uid, password, models = get_odoo_connection(
-                    ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_API_KEY
-                )
-            except Exception as e:
-                st.error(f"Odoo connection error (product create): {e}")
-            else:
-                if create_clicked:
-                    try:
-                        model_fields = models.execute_kw(
-                            db, uid, password,
-                            "product.template", "fields_get",
-                            [],
-                            {"attributes": ["string"]}
-                        )
-                        existing_field_names = set(model_fields.keys())
-
-                        product_vals = {
-                            "name": current["Description"],
-                            "default_code": internal_ref,
-                            "barcode": barcode or False,
-                            "standard_price": cost_price,
-                            "list_price": sale_price,
-                            "company_id": company_id,
-                        }
-
-                        custom_field_candidates = {
-                            "old_barcode": ["x_old_barcode", "x_studio_old_barcode"],
-                            "season": ["x_season", "x_studio_season"],
-                            "brand": ["x_brand", "x_studio_brand"],
-                        }
-
-                        if old_barcode:
-                            for fname in custom_field_candidates["old_barcode"]:
-                                if fname in existing_field_names:
-                                    product_vals[fname] = old_barcode
-                                    break
-                        if season:
-                            for fname in custom_field_candidates["season"]:
-                                if fname in existing_field_names:
-                                    product_vals[fname] = season
-                                    break
-                        if brand:
-                            for fname in custom_field_candidates["brand"]:
-                                if fname in existing_field_names:
-                                    product_vals[fname] = brand
-                                    break
-
-                        template_id = models.execute_kw(
-                            db, uid, password,
-                            "product.template", "create",
-                            [product_vals],
-                            {"context": ctx},
-                        )
-
-                        st.success(
-                            f"✅ Product created (template ID {template_id}) "
-                            f"for {internal_ref}"
-                        )
-
-                        missing_products.pop(idx)
-                        st.session_state.po_missing_products = missing_products
-                        st.session_state.current_missing_index = 0
-
-                    except Exception as e:
-                        st.error(f"Odoo product create error: {e}")
-                elif skip_clicked:
-                    if len(missing_products) > 0:
-                        new_idx = (idx + 1) % len(missing_products)
-                        st.session_state.current_missing_index = new_idx
-                        st.info("➡ Moved to next missing product.")
-    else:
-        if company_snapshot:
-            st.info("No missing products. You can now create Purchase Order.")
 
     if lines:
         st.markdown("---")
