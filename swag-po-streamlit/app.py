@@ -8,7 +8,7 @@ import io
 
 # ========= PAGE CONFIG =========
 st.set_page_config(
-    page_title="SWAG PO Creator",
+    page_title="SWAG Purchase Order Creator",
     page_icon="🧾",
     layout="wide",
 )
@@ -515,12 +515,8 @@ if create_po_clicked:
         if missing_products:
             st.warning(tr("log_missing_warning"))
 
-            # store list in session so we can remove items
-            if "missing_products_list" not in st.session_state:
-                st.session_state.missing_products_list = missing_products
-            else:
-                st.session_state.missing_products_list = missing_products
-
+            # list ko session_state me store karo
+            st.session_state.missing_products_list = missing_products
             mpl = st.session_state.missing_products_list
 
             if len(mpl) > 0:
@@ -573,7 +569,7 @@ if create_po_clicked:
                             "barcode": barcode or False,
                             "standard_price": cost_price,
                             "list_price": sale_price,
-                            # TODO: replace with your real custom field names
+                            # yahan apne Odoo ke real custom field names lagana
                             "x_old_barcode": old_barcode or False,
                             "x_season": season or False,
                             "x_brand": brand or False,
@@ -596,7 +592,7 @@ if create_po_clicked:
                         st.session_state.missing_products_list = mpl
 
                         if len(mpl) == 0:
-                            st.info("Sab missing products complete ho gaye. Ab upar se PO dobara create kar sakte ho.")
+                            st.info("Sab missing products complete ho gaye. Ab upar se PO dobara create karo taaki sab lines match ho jayein.")
                         else:
                             st.session_state.current_missing_index = 0
 
@@ -607,6 +603,7 @@ if create_po_clicked:
                     if len(mpl) > 0:
                         st.session_state.current_missing_index = (idx + 1) % len(mpl)
                     st.info("Ye product skip kar diya, next wala dikhega.")
+
             else:
                 st.success("All missing products handled, koi aur product create karne ko nahi bacha.")
 
