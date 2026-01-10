@@ -607,18 +607,54 @@ with tab_log:
             else:
                 if create_clicked:
                     try:
+                        # -------- FIXED SAFE PRODUCT CREATE --------
+                        # product.template ke available fields read karo
+                        model_fields = models.execute_kw(
+                            db, uid, password,
+                            "product.template", "fields_get",
+                            [],
+                            {"attributes": ["string"]}
+                        )
+                        existing_field_names = set(model_fields.keys())
+
+                        # base vals (standard Odoo fields)
                         product_vals = {
                             "name": current["Description"],
                             "default_code": internal_ref,
                             "barcode": barcode or False,
                             "standard_price": cost_price,
                             "list_price": sale_price,
-                            # apne Odoo ke custom fields ke naam yahan daalo:
-                            "x_old_barcode": old_barcode or False,
-                            "x_season": season or False,
-                            "x_brand": brand or False,
                             "company_id": company_id,
                         }
+
+                        # custom fields ke possible technical names
+                        custom_field_candidates = {
+                            "old_barcode": ["x_old_barcode", "x_studio_old_barcode"],
+                            "season": ["x_season", "x_studio_season"],
+                            "brand": ["x_brand", "x_studio_brand"],
+                        }
+
+                        # Old Barcode
+                        if old_barcode:
+                            for fname in custom_field_candidates["old_barcode"]:
+                                if fname in existing_field_names:
+                                    product_vals[fname] = old_barcode
+                                    break
+
+                        # Season
+                        if season:
+                            for fname in custom_field_candidates["season"]:
+                                if fname in existing_field_names:
+                                    product_vals[fname] = season
+                                    break
+
+                        # Brand
+                        if brand:
+                            for fname in custom_field_candidates["brand"]:
+                                if fname in existing_field_names:
+                                    product_vals[fname] = brand
+                                    break
+                        # -------- FIX BLOCK END --------
 
                         template_id = models.execute_kw(
                             db, uid, password,
