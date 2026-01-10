@@ -1,10 +1,11 @@
-# app.py  (SWAG PO Creator – EN+AR, with vendor / deliver / distribution dropdowns)
+# app.py  (SWAG PO Creator – Excel + PDF invoice to PO)
 
 import streamlit as st
 import pandas as pd
 from datetime import datetime
 import xmlrpc.client
 import io
+import pdfplumber
 
 # ========= PAGE CONFIG =========
 st.set_page_config(
@@ -15,13 +16,14 @@ st.set_page_config(
 
 # ========= SESSION STATE =========
 if "lang" not in st.session_state:
-    st.session_state.lang = "en"   # default english
+    st.session_state.lang = "en"
 
 for key, default in {
     "company_chosen": False,
     "company_name": "",
     "company_id": None,
     "df": None,
+    "source_type": None,  # "excel" or "pdf"
     "po_lines": None,
     "po_missing_products": None,
     "current_missing_index": 0,
@@ -32,19 +34,19 @@ for key, default in {
     if key not in st.session_state:
         st.session_state[key] = default
 
-# ========= TRANSLATIONS (EN + AR) =========
+# ========= TRANSLATIONS =========
 T = {
     "title": {
         "en": "SWAG Purchase Order Creator",
         "ar": "منشئ أوامر الشراء SWAG",
     },
     "subtitle": {
-        "en": "Upload Excel → Choose company → Vendor / Deliver / Distribution → Draft PO in Odoo.",
-        "ar": "ارفع ملف إكسل → اختر الشركة → المورّد / التسليم / التوزيع التحليلي → إنشاء أمر شراء مسودة في أودو.",
+        "en": "Upload Excel or PDF invoice → Clean draft Purchase Order in Odoo.",
+        "ar": "ارفع ملف إكسل أو فاتورة PDF → إنشاء أمر شراء مسودة في أودو.",
     },
     "badge_main": {
-        "en": "Multi‑Company • XML‑RPC • Excel Automation",
-        "ar": "متعدد الشركات • XML‑RPC • أتمتة من إكسل",
+        "en": "Excel + PDF • XML‑RPC • Automation",
+        "ar": "إكسل + PDF • XML‑RPC • أتمتة",
     },
     "badge_for": {
         "en": "Made for Buying & Operations",
@@ -60,18 +62,31 @@ T = {
     "excel_help_title": {"en": "Excel Format Help", "ar": "مساعدة في تنسيق الإكسل"},
     "excel_help_text": {
         "en": (
-            "- Required columns (exact names):\n"
+            "- Required Excel columns (exact names):\n"
             "  - `order_line/product_id` → Internal Reference / SKU\n"
             "  - `order_line/name` → Description\n"
             "  - `order_line/product_uom_qty` → Quantity\n"
             "  - `order_line/price_unit` → Unit Price\n"
         ),
         "ar": (
-            "- الأعمدة المطلوبة (بنفس الأسماء):\n"
+            "- الأعمدة المطلوبة للإكسل (بنفس الأسماء):\n"
             "  - `order_line/product_id` → الكود الداخلي / SKU\n"
             "  - `order_line/name` → الوصف\n"
             "  - `order_line/product_uom_qty` → الكمية\n"
             "  - `order_line/price_unit` → سعر الوحدة\n"
+        ),
+    },
+    "pdf_help_title": {"en": "PDF Invoice Help", "ar": "مساعدة فاتورة PDF"},
+    "pdf_help_text": {
+        "en": (
+            "- For this version, PDF format is same as SWAG sales invoice like sample:\n"
+            "  - Has columns: Model Number, Product Description, Quantity, Price (without tax).\n"
+            "  - Example model codes: RVH010, RVH023, DM8-0054-5, etc.\n"
+        ),
+        "ar": (
+            "- في هذا الإصدار، شكل فاتورة PDF مثل فاتورة مبيعات SWAG:\n"
+            "  - فيها أعمدة: رقم الموديل، وصف الصنف، الكمية، السعر بدون ضريبة.\n"
+            "  - مثال الأكواد: RVH010, RVH023, DM8-0054-5 ...\n"
         ),
     },
     "excel_tip": {
@@ -80,14 +95,14 @@ T = {
     },
     "tab_upload": {"en": "📁 Upload & Company", "ar": "📁 رفع الملف و اختيار الشركة"},
     "tab_log": {"en": "📒 Log & PO Result", "ar": "📒 السجل و نتيجة أمر الشراء"},
-    "step1_upload": {"en": "1️⃣ Upload Excel", "ar": "1️⃣ رفع ملف الإكسل"},
+    "step1_upload": {"en": "1️⃣ Upload Excel or PDF", "ar": "1️⃣ رفع ملف إكسل أو PDF"},
     "uploader_label": {
         "en": "Drop file here or click to browse",
         "ar": "أسقط الملف هنا أو اضغط للاختيار",
     },
     "uploader_help": {
-        "en": "Single sheet with header row on top.",
-        "ar": "ورقة واحدة مع صف عناوين في الأعلى.",
+        "en": "Supported: Excel (.xlsx, .xls) and PDF invoice.",
+        "ar": "يدعم: إكسل (.xlsx, .xls) و فاتورة PDF.",
     },
     "step2_company": {"en": "2️⃣ Connect & Choose Company", "ar": "2️⃣ الاتصال واختيار الشركة"},
     "btn_test_conn": {"en": "🔄 Test Odoo Connection", "ar": "🔄 تجربة الاتصال بأودو"},
@@ -107,16 +122,16 @@ T = {
     },
     "step3_preview": {"en": "3️⃣ Data Preview", "ar": "3️⃣ معاينة البيانات"},
     "guard_msg": {
-        "en": "Upload Excel, choose vendor/destination, and confirm company before creating PO.",
-        "ar": "ارفع ملف الإكسل، واختر المورّد ووجهة التسليم، وأكّد الشركة قبل إنشاء أمر الشراء.",
+        "en": "Upload file, choose vendor/destination, and confirm company before creating PO.",
+        "ar": "ارفع الملف، واختر المورّد ووجهة التسليم، وأكّد الشركة قبل إنشاء أمر الشراء.",
     },
     "btn_create_po": {
-        "en": "🚀 Scan Excel & Prepare PO",
-        "ar": "🚀 فحص الإكسل وتجهيز أمر الشراء",
+        "en": "🚀 Scan File & Prepare PO",
+        "ar": "🚀 فحص الملف وتجهيز أمر الشراء",
     },
     "err_upload_first": {
-        "en": "Please upload an Excel file first.",
-        "ar": "من فضلك ارفع ملف الإكسل أولاً.",
+        "en": "Please upload a file first.",
+        "ar": "من فضلك ارفع ملفاً أولاً.",
     },
     "err_company_not_confirmed": {
         "en": "Company is not confirmed; press Confirm Company button.",
@@ -155,12 +170,14 @@ T = {
     "lang_label": {"en": "Language", "ar": "اللغة"},
     "lang_en": {"en": "English", "ar": "الإنجليزية"},
     "lang_ar": {"en": "Arabic", "ar": "العربية"},
+    "source_excel": {"en": "Excel", "ar": "إكسل"},
+    "source_pdf": {"en": "PDF Invoice", "ar": "فاتورة PDF"},
 }
 
 def tr(key):
     return T.get(key, {}).get(st.session_state.lang, T.get(key, {}).get("en", key))
 
-# ========= PREMIUM CSS =========
+# ========= CSS =========
 st.markdown(
     """
     <style>
@@ -247,32 +264,6 @@ st.markdown(
         box-shadow: 0 16px 35px rgba(37,99,235,0.45);
         transition: all 0.18s ease-in-out;
     }
-    .stButton>button:hover {
-        transform: translateY(-2px) scale(1.02);
-        box-shadow: 0 22px 45px rgba(59,130,246,0.75);
-    }
-    .stButton>button:active {
-        transform: translateY(0px) scale(0.99);
-        box-shadow: 0 8px 18px rgba(15,23,42,0.9);
-    }
-    .stDataFrame, .stTable {
-        font-size: 0.9rem;
-        color: #e5e7eb;
-    }
-    button[data-baseweb="tab"] {
-        background: transparent !important;
-        border: none !important;
-        color: #9ca3af !important;
-        font-weight: 500;
-    }
-    button[data-baseweb="tab"][aria-selected="true"] {
-        color: #e5e7eb !important;
-        border-bottom: 2px solid #38bdf8 !important;
-    }
-    @keyframes fadeInUp {
-        from { opacity:0; transform: translateY(6px); }
-        to { opacity:1; transform: translateY(0px); }
-    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -315,7 +306,6 @@ def load_picking_types(models, db, uid, password):
     return pickings
 
 def load_distributions(models, db, uid, password):
-    # If your Analytic Distribution model is different, change model name here
     dists = models.execute_kw(
         db, uid, password,
         "account.analytic.distribution", "search_read",
@@ -335,6 +325,82 @@ def get_product_id_by_code(models, db, uid, password, code, context=None):
     )
     return product_ids[0] if product_ids else False
 
+# ========= PDF PARSER (for SWAG-style invoice) =========
+def parse_swag_pdf_to_df(file_bytes: bytes) -> pd.DataFrame:
+    """
+    Parse SWAG invoice PDF (like S89631) into a DataFrame with
+    columns: order_line/product_id, order_line/name, order_line/product_uom_qty, order_line/price_unit
+    """
+    rows = []
+    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+        for page in pdf.pages:
+            tables = page.extract_tables()
+            for table in tables:
+                # tables is list of 2D arrays; we try to locate header row with "Model Number"
+                for r in table:
+                    if not r:
+                        continue
+                    header_row = [str(x).strip() if x is not None else "" for x in r]
+                    if "Model Number" in header_row or "ﺍﻟﻤﻮﺩﻳﻞ ﺭﻗﻢ" in header_row:
+                        header = header_row
+                        header_index = table.index(r)
+                        data_rows = table[header_index + 1:]
+                        for dr in data_rows:
+                            cells = [str(x).strip() if x is not None else "" for x in dr]
+                            # Skip empty lines
+                            if len(set(cells)) <= 1:
+                                continue
+                            # Try to map columns by position:
+                            # Expected order (from your sample):
+                            # No | Model Number | Product Description | Unit | Quantity | Price | Tax | Price Tax Inc | Total Tax Inc
+                            # We will be defensive: length check
+                            if len(cells) < 6:
+                                continue
+                            try:
+                                no = cells[0]
+                                model = cells[1]
+                                desc = cells[2]
+                                quantity_text = cells[4]
+                                price_text = cells[5]
+
+                                # Clean quantity: remove Arabic word "حبة" if merged
+                                # e.g. "30ﺣﺒﺔ" -> 30
+                                import re
+                                qty_match = re.search(r"(\d+(\.\d+)?)", quantity_text)
+                                qty = float(qty_match.group(1)) if qty_match else 0.0
+
+                                # Clean price: remove SR, commas
+                                price_clean = (
+                                    price_text.replace("SR", "")
+                                    .replace("ر.س", "")
+                                    .replace(",", "")
+                                    .strip()
+                                )
+                                price = float(price_clean) if price_clean else 0.0
+
+                                if model and qty > 0 and price > 0:
+                                    rows.append(
+                                        {
+                                            "order_line/product_id": model,
+                                            "order_line/name": desc,
+                                            "order_line/product_uom_qty": qty,
+                                            "order_line/price_unit": price,
+                                        }
+                                    )
+                            except Exception:
+                                # ignore this row if parse fails
+                                continue
+    if not rows:
+        return pd.DataFrame(
+            columns=[
+                "order_line/product_id",
+                "order_line/name",
+                "order_line/product_uom_qty",
+                "order_line/price_unit",
+            ]
+        )
+    return pd.DataFrame(rows)
+
 # ========= HEADER =========
 st.markdown(f'<p class="main-title">{tr("title")}</p>', unsafe_allow_html=True)
 st.markdown(f'<p class="sub-caption">{tr("subtitle")}</p>', unsafe_allow_html=True)
@@ -352,7 +418,6 @@ with h2:
         unsafe_allow_html=True,
     )
 
-# ========= HERO CARDS =========
 hero_left, hero_right = st.columns([1.6, 1])
 
 with hero_left:
@@ -363,8 +428,7 @@ with hero_left:
                 PURCHASE OPS CONTROL PANEL
             </div>
             <div style="font-size:1.05rem; margin-top:0.35rem; color:#e5e7eb;">
-                Scan supplier Excel, validate SKUs, and spin up a clean draft PO in under
-                <span style="color:#38bdf8; font-weight:600;">30 seconds</span>.
+                Scan supplier Excel or SWAG PDF invoice, validate SKUs, and spin up a clean draft PO.
             </div>
         </div>
         """,
@@ -378,7 +442,7 @@ with hero_right:
         f"""
         <div class="glass-card" style="padding:0.9rem 1.1rem; margin-bottom:0.8rem;">
             <div style="font-size:0.8rem; color:#9ca3af; margin-bottom:0.4rem;">
-                Today's session
+                Session metrics
             </div>
             <div style="display:flex; justify-content:space-between; font-size:0.9rem;">
                 <div>
@@ -398,8 +462,6 @@ with hero_right:
         """,
         unsafe_allow_html=True,
     )
-
-st.markdown("")
 
 # ========= SIDEBAR =========
 with st.sidebar:
@@ -432,7 +494,6 @@ with st.sidebar:
         except Exception as e:
             st.error(f"Odoo master data error: {e}")
 
-    # Vendor select
     if vendors:
         vendor_names = [v["name"] for v in vendors]
         vendor_choice = st.selectbox("Vendor", vendor_names, key="vendor_select")
@@ -442,7 +503,6 @@ with st.sidebar:
     else:
         st.session_state.vendor_id = None
 
-    # Deliver To / Picking Type
     if pickings:
         picking_names = [p["name"] for p in pickings]
         picking_choice = st.selectbox(
@@ -454,7 +514,6 @@ with st.sidebar:
     else:
         st.session_state.picking_type_id = None
 
-    # Analytic Distribution
     if distributions:
         dist_names = [d["name"] for d in distributions]
         dist_choice = st.selectbox(
@@ -476,6 +535,8 @@ with st.sidebar:
     with st.expander(tr("excel_help_title"), expanded=False):
         st.write(tr("excel_help_text"))
         st.caption(tr("excel_tip"))
+    with st.expander(tr("pdf_help_title"), expanded=False):
+        st.write(tr("pdf_help_text"))
 
 connection_status = st.empty()
 
@@ -489,12 +550,30 @@ with tab_upload:
     c1, c2 = st.columns([1.4, 1])
     with c1:
         st.markdown("#### " + tr("step1_upload"))
-        st.markdown('<div class="upload-box">', unsafe_allow_html=True)
-        uploaded_file = st.file_uploader(
-            tr("uploader_label"),
-            type=["xlsx", "xls"],
-            help=tr("uploader_help"),
+
+        source = st.radio(
+            "Source type",
+            options=["excel", "pdf"],
+            format_func=lambda x: tr("source_excel") if x == "excel" else tr("source_pdf"),
+            horizontal=True,
         )
+        st.session_state.source_type = source
+
+        st.markdown('<div class="upload-box">', unsafe_allow_html=True)
+        if source == "excel":
+            uploaded_file = st.file_uploader(
+                tr("uploader_label"),
+                type=["xlsx", "xls"],
+                help=tr("uploader_help"),
+                key="excel_uploader",
+            )
+        else:
+            uploaded_file = st.file_uploader(
+                tr("uploader_label"),
+                type=["pdf"],
+                help=tr("uploader_help"),
+                key="pdf_uploader",
+            )
         st.markdown("</div>", unsafe_allow_html=True)
 
     with c2:
@@ -558,16 +637,19 @@ with tab_upload:
     if uploaded_file is not None:
         try:
             file_bytes = uploaded_file.read()
-            file_ext = uploaded_file.name.split(".")[-1].lower()
-            if file_ext == "xlsx":
-                df = pd.read_excel(io.BytesIO(file_bytes), engine="openpyxl")
+            if source == "excel":
+                file_ext = uploaded_file.name.split(".")[-1].lower()
+                if file_ext == "xlsx":
+                    df = pd.read_excel(io.BytesIO(file_bytes), engine="openpyxl")
+                else:
+                    df = pd.read_excel(io.BytesIO(file_bytes), engine="xlrd")
             else:
-                df = pd.read_excel(io.BytesIO(file_bytes), engine="xlrd")
+                df = parse_swag_pdf_to_df(file_bytes)
             st.session_state.df = df
             st.markdown("#### " + tr("step3_preview"))
             st.dataframe(df.head(), use_container_width=True)
         except Exception as e:
-            st.error(f"Excel read error: {e}")
+            st.error(f"File read / parse error: {e}")
     else:
         st.session_state.df = None
 
@@ -601,7 +683,7 @@ with tab_log:
     missing_df_placeholder = st.empty()
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ========= STEP 1: Scan Excel & store in state =========
+# ========= STEP 1: Scan DataFrame & store in state =========
 if create_po_clicked:
     if st.session_state.df is None:
         st.error(tr("err_upload_first"))
@@ -651,9 +733,6 @@ if create_po_clicked:
         price = float(row[price_col])
 
         try:
-            db, uid, password, models = get_odoo_connection(
-                ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_API_KEY
-            )
             product_id = get_product_id_by_code(
                 models, db, uid, password, code, context=ctx
             )
@@ -678,7 +757,6 @@ if create_po_clicked:
                 "name": name,
             }
             if st.session_state.distribution_id:
-                # change field name if your module uses something else
                 line_vals["analytic_distribution_id"] = st.session_state.distribution_id
             lines.append(line_vals)
             log_messages.append(f"✅ Row {idx+2}: {code} → Product ID {product_id}")
@@ -724,7 +802,7 @@ with tab_log:
             f"**Picking Type:** {company_snapshot['picking_type_id']}"
         )
 
-    # Missing products wizard (same as before)
+    # Missing products wizard
     if missing_products:
         st.markdown(
             f'<div class="info-badge">Missing products: {len(missing_products)}</div>',
@@ -755,8 +833,6 @@ with tab_log:
                 border-radius:14px;
                 border:1px solid rgba(148,163,184,0.55);
                 background:radial-gradient(circle at top left, rgba(15,23,42,0.98), rgba(15,23,42,0.92));
-                box-shadow:0 16px 40px rgba(15,23,42,0.75);
-                animation: fadeInUp 0.45s ease-out;
             ">
             """,
             unsafe_allow_html=True,
@@ -879,7 +955,6 @@ with tab_log:
         if company_snapshot:
             st.info("No missing products. You can now create Purchase Order.")
 
-    # Final PO create button
     if lines:
         st.markdown("---")
         if st.button("🚀 Create Draft Purchase Order in Odoo (using matched lines)"):
@@ -898,10 +973,7 @@ with tab_log:
             except Exception as e:
                 st.error(f"Odoo connection error (PO create): {e}")
             else:
-                order_lines = [
-                    (0, 0, line)
-                    for line in lines
-                ]
+                order_lines = [(0, 0, line) for line in lines]
                 po_vals = {
                     "partner_id": int(vendor_id),
                     "date_order": datetime.now().strftime("%Y-%m-%d"),
