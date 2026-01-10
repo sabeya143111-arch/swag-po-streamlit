@@ -1,4 +1,4 @@
-# app.py  (SWAG PO Creator – Excel + PDF invoice to PO, text-based PDF parser)
+# app.py (SWAG PO Creator – Excel + PDF invoice to PO, text-based PDF parser)
 
 import streamlit as st
 import pandas as pd
@@ -63,13 +63,13 @@ T = {
     "excel_help_text": {
         "en": (
             "- Required Excel columns (exact names):\n"
-            "  - `order_line/name` → Description\n"
+            "  - `order_line/name` → Model / Description\n"
             "  - `order_line/product_uom_qty` → Quantity\n"
             "  - `order_line/price_unit` → Unit Price\n"
         ),
         "ar": (
             "- الأعمدة المطلوبة للإكسل (بنفس الأسماء):\n"
-            "  - `order_line/name` → الوصف\n"
+            "  - `order_line/name` → الموديل / الوصف\n"
             "  - `order_line/product_uom_qty` → الكمية\n"
             "  - `order_line/price_unit` → سعر الوحدة\n"
         ),
@@ -79,12 +79,12 @@ T = {
         "en": (
             "- PDF format same as SWAG sales invoice like sample S89631:\n"
             "  - Lines containing totals like `SR 2,070.00` and codes like `RVH010`.\n"
-            "  - Parser pulls: description, quantity, price (without tax).\n"
+            "  - Parser pulls: model code (as name), quantity, price (without tax).\n"
         ),
         "ar": (
             "- شكل فاتورة PDF مثل فاتورة مبيعات SWAG (نموذج S89631):\n"
             "  - أسطر فيها الإجمالي مثل `SR 2,070.00` و كود مثل `RVH010`.\n"
-            "  - المعالج يستخرج: الوصف، الكمية، السعر بدون ضريبة.\n"
+            "  - المعالج يستخرج: كود الموديل (كاسم)، الكمية، السعر بدون ضريبة.\n"
         ),
     },
     "excel_tip": {
@@ -304,12 +304,11 @@ def load_distributions(models, db, uid, password):
     )
     return dists
 
-# ========= PDF PARSER (only 3 fields: name, qty, price) =========
+# ========= PDF PARSER (only model as name, qty, price) =========
 def parse_swag_pdf_to_df(file_bytes: bytes) -> pd.DataFrame:
     """
-    Parse SWAG invoice PDF (like S89631) into DataFrame with:
-    order_line/name, order_line/product_uom_qty, order_line/price_unit
-    Uses raw text pattern matching.
+    Parse SWAG invoice PDF into:
+    order_line/name (model code only), order_line/product_uom_qty, order_line/price_unit
     """
     import re
     rows = []
@@ -335,19 +334,15 @@ def parse_swag_pdf_to_df(file_bytes: bytes) -> pd.DataFrame:
                 continue
             qty = float(qty_match.group(1))
 
-            # Model only for cleaning description (not stored)
+            # Model code at end
             model_match = re.search(r"([A-Za-z0-9\-]+)\s*$", line)
             if not model_match:
                 continue
             model = model_match.group(1)
 
-            desc_part = line
-            desc_part = re.sub(rf"^.*?{qty}\D+", "", desc_part)
-            desc_part = desc_part.replace(model, "").strip()
-
             rows.append(
                 {
-                    "order_line/name": desc_part,
+                    "order_line/name": model,  # sirf model
                     "order_line/product_uom_qty": qty,
                     "order_line/price_unit": price,
                 }
@@ -378,7 +373,7 @@ with hero_left:
                 PURCHASE OPS CONTROL PANEL
             </div>
             <div style="font-size:1.05rem; margin-top:0.35rem; color:#e5e7eb;">
-                Scan supplier Excel or SWAG PDF invoice, and spin up a clean draft PO from description, quantity, and price.
+                Scan supplier Excel or SWAG PDF invoice, and spin up a clean draft PO from model, quantity, and price.
             </div>
         </div>
         """,
@@ -689,7 +684,7 @@ if create_po_clicked:
         log_messages.append(f"✅ Row {idx+2}: {name} → added without product_id")
 
     st.session_state.po_lines = lines
-    st.session_state.po_missing_products = []  # no lookup, so nothing missing
+    st.session_state.po_missing_products = []
     st.session_state.company_snapshot = {
         "company_id": company_id,
         "company_name": company_name,
