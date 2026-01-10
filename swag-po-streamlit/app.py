@@ -1,4 +1,4 @@
-# app.py (SWAG PO Creator – Excel + PDF invoice to PO, text-based PDF parser)
+# app.py  (SWAG PO Creator – Excel + PDF invoice to PO, text-based PDF parser)
 
 import streamlit as st
 import pandas as pd
@@ -30,6 +30,7 @@ for key, default in {
     "vendor_id": None,
     "picking_type_id": None,
     "distribution_id": None,
+    "pdf_total": None,
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -304,11 +305,14 @@ def load_distributions(models, db, uid, password):
     )
     return dists
 
-# ========= PDF PARSER (only model as name, qty, price) =========
+# ========= PDF PARSER (model as name + invoice total) =========
 def parse_swag_pdf_to_df(file_bytes: bytes) -> pd.DataFrame:
     """
     Parse SWAG invoice PDF into:
-    order_line/name (model code only), order_line/product_uom_qty, order_line/price_unit
+    - order_line/name  -> model code (e.g. TX2442)
+    - order_line/product_uom_qty -> quantity
+    - order_line/price_unit -> unit price (without tax)
+    Also sets st.session_state.pdf_total = last SR amount in the PDF.
     """
     import re
     rows = []
@@ -319,6 +323,7 @@ def parse_swag_pdf_to_df(file_bytes: bytes) -> pd.DataFrame:
             t = page.extract_text() or ""
             full_text += t + "\n"
 
+    # --- 1) Line items ---
     for line in full_text.splitlines():
         if "SR" not in line:
             continue
@@ -334,7 +339,6 @@ def parse_swag_pdf_to_df(file_bytes: bytes) -> pd.DataFrame:
                 continue
             qty = float(qty_match.group(1))
 
-            # Model code at end
             model_match = re.search(r"([A-Za-z0-9\-]+)\s*$", line)
             if not model_match:
                 continue
@@ -342,13 +346,25 @@ def parse_swag_pdf_to_df(file_bytes: bytes) -> pd.DataFrame:
 
             rows.append(
                 {
-                    "order_line/name": model,  # sirf model
+                    "order_line/name": model,
                     "order_line/product_uom_qty": qty,
                     "order_line/price_unit": price,
                 }
             )
         except Exception:
             continue
+
+    # --- 2) Invoice total (last SR amount in whole PDF) ---
+    import re
+    all_amounts = re.findall(r"SR\s*([\d,]+\.?\d*)", full_text)
+    if all_amounts:
+        total_str = all_amounts[-1].replace(",", "")
+        try:
+            st.session_state.pdf_total = float(total_str)
+        except Exception:
+            st.session_state.pdf_total = None
+    else:
+        st.session_state.pdf_total = None
 
     if not rows:
         return pd.DataFrame(
@@ -586,11 +602,15 @@ with tab_upload:
                     df = pd.read_excel(io.BytesIO(file_bytes), engine="openpyxl")
                 else:
                     df = pd.read_excel(io.BytesIO(file_bytes), engine="xlrd")
+                st.session_state.pdf_total = None
             else:
                 df = parse_swag_pdf_to_df(file_bytes)
             st.session_state.df = df
             st.markdown("#### " + tr("step3_preview"))
             st.dataframe(df, use_container_width=True)
+
+            if source == "pdf" and st.session_state.get("pdf_total") is not None:
+                st.info(f"Invoice total (from PDF): SR {st.session_state.pdf_total:,.2f}")
         except Exception as e:
             st.error(f"File read / parse error: {e}")
     else:
