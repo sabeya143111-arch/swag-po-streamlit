@@ -1,4 +1,4 @@
-# app.py  (SWAG PO Creator – EN+AR, premium UI, multi‑company, confirm step + missing product wizard)
+# app.py  (SWAG PO Creator – EN+AR, with login + secrets Odoo credentials)
 
 import streamlit as st
 import pandas as pd
@@ -12,6 +12,30 @@ st.set_page_config(
     page_icon="🧾",
     layout="wide",
 )
+
+# ========= SIMPLE LOGIN (demo) =========
+def check_credentials(username, password):
+    users = st.secrets.get("app_users", {})
+    # Very basic check; for production prefer streamlit-authenticator
+    return username in users and users[username] == password
+
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+
+if not st.session_state.logged_in:
+    st.title("SWAG PO Creator – Login")
+
+    login_col1, login_col2 = st.columns([1, 1])
+    with login_col1:
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        if st.button("Login"):
+            if check_credentials(username, password):
+                st.session_state.logged_in = True
+                st.experimental_rerun()
+            else:
+                st.error("Invalid username or password. Please try again.")
+    st.stop()
 
 # ========= SESSION STATE =========
 if "lang" not in st.session_state:
@@ -112,8 +136,8 @@ T = {
         "ar": "🚀 فحص الإكسل وتجهيز أمر الشراء",
     },
     "err_fill_conn": {
-        "en": "Fill Odoo connection details in sidebar.",
-        "ar": "املأ تفاصيل اتصال أودو في الشريط الجانبي.",
+        "en": "Odoo connection misconfigured on server (ask admin).",
+        "ar": "إعداد اتصال أودو غير صحيح (تواصل مع المسؤول).",
     },
     "err_upload_first": {
         "en": "Please upload an Excel file first.",
@@ -145,10 +169,6 @@ T = {
         "en": "Draft Purchase Order created",
         "ar": "تم إنشاء أمر شراء (مسودة)",
     },
-    "next_steps": {
-        "en": "Next in Odoo:\n- Open the PO\n- Change supplier if needed\n- Confirm, Receive and Create Bill",
-        "ar": "الخطوات التالية في أودو:\n- افتح أمر الشراء\n- غيّر المورد إذا لزم\n- أكد الأمر، استلم الكمية، وأنشئ الفاتورة",
-    },
     "lang_label": {"en": "Language", "ar": "اللغة"},
     "lang_en": {"en": "English", "ar": "الإنجليزية"},
     "lang_ar": {"en": "Arabic", "ar": "العربية"},
@@ -157,7 +177,7 @@ T = {
 def tr(key):
     return T.get(key, {}).get(st.session_state.lang, T.get(key, {}).get("en", key))
 
-# ========= PREMIUM CSS =========
+# ========= PREMIUM CSS (same as before) =========
 st.markdown(
     """
     <style>
@@ -275,6 +295,12 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# ========= ODOO CREDENTIALS FROM SECRETS =========
+ODOO_URL = st.secrets["odoo"]["url"]
+ODOO_DB = st.secrets["odoo"]["db"]
+ODOO_USERNAME = st.secrets["odoo"]["username"]
+ODOO_API_KEY = st.secrets["odoo"]["api_key"]
+
 # ========= HEADER =========
 st.markdown(f'<p class="main-title">{tr("title")}</p>', unsafe_allow_html=True)
 st.markdown(f'<p class="sub-caption">{tr("subtitle")}</p>', unsafe_allow_html=True)
@@ -352,12 +378,6 @@ with st.sidebar:
     )
     st.session_state.lang = lang_choice
 
-    st.markdown("### 🔐 " + tr("sidebar_conn"))
-    ODOO_URL = st.text_input(tr("odoo_url"), "https://tariqueswag1231.odoo.com")
-    ODOO_DB = st.text_input(tr("db"), "tariqueswag1231")
-    ODOO_USERNAME = st.text_input(tr("username"), "tarique143111@gmail.com")
-    ODOO_API_KEY = st.text_input(tr("api_key"), type="password")
-
     st.markdown("---")
     st.markdown("### 🧾 " + tr("sidebar_defaults"))
     DEFAULT_PARTNER_ID = st.number_input(tr("default_supplier"), min_value=1, value=1, step=1)
@@ -420,44 +440,38 @@ with tab_upload:
         st.markdown("#### " + tr("step2_company"))
 
         if st.button(tr("btn_test_conn"), key="test_conn"):
-            if not (ODOO_URL and ODOO_DB and ODOO_USERNAME and ODOO_API_KEY):
-                st.error(tr("err_fill_conn"))
-            else:
-                try:
-                    db, uid, password, models = get_odoo_connection(
-                        ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_API_KEY
-                    )
-                    connection_status.success(f"Connected to Odoo (UID: {uid})")
-                except Exception as e:
-                    connection_status.error(f"❌ {e}")
+            try:
+                db, uid, password, models = get_odoo_connection(
+                    ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_API_KEY
+                )
+                connection_status.success(f"Connected to Odoo (UID: {uid})")
+            except Exception as e:
+                connection_status.error(f"❌ {e}")
 
         if st.button(tr("btn_load_company"), key="choose_company_btn"):
-            if not (ODOO_URL and ODOO_DB and OODO_USERNAME and ODOO_API_KEY):
-                st.error(tr("err_fill_conn"))
-            else:
-                try:
-                    db, uid, password, models = get_odoo_connection(
-                        ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_API_KEY
-                    )
-                    companies = load_companies(models, db, uid, password)
-                except Exception as e:
-                    st.error(f"Company load error: {e}")
-                    companies = []
+            try:
+                db, uid, password, models = get_odoo_connection(
+                    ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_API_KEY
+                )
+                companies = load_companies(models, db, uid, password)
+            except Exception as e:
+                st.error(f"Company load error: {e}")
+                companies = []
 
-                if not companies:
-                    st.error("No companies found in Odoo.")
-                else:
-                    names = [c["name"] for c in companies]
-                    selected_name = st.selectbox(
-                        tr("select_company_label"),
-                        names,
-                        key="company_select_runtime",
-                    )
-                    if selected_name:
-                        company_id = next(c["id"] for c in companies if c["name"] == selected_name)
-                        st.session_state.company_name = selected_name
-                        st.session_state.company_id = company_id
-                        st.session_state.company_chosen = False
+            if not companies:
+                st.error("No companies found in Odoo.")
+            else:
+                names = [c["name"] for c in companies]
+                selected_name = st.selectbox(
+                    tr("select_company_label"),
+                    names,
+                    key="company_select_runtime",
+                )
+                if selected_name:
+                    company_id = next(c["id"] for c in companies if c["name"] == selected_name)
+                    st.session_state.company_name = selected_name
+                    st.session_state.company_id = company_id
+                    st.session_state.company_chosen = False
 
         if st.session_state.company_id:
             st.markdown(
@@ -520,9 +534,6 @@ if create_po_clicked:
         st.stop()
     if not st.session_state.company_chosen or not st.session_state.company_id:
         st.error(tr("err_company_not_confirmed"))
-        st.stop()
-    if not (ODOO_URL and ODOO_DB and ODOO_USERNAME and ODOO_API_KEY):
-        st.error(tr("err_fill_conn"))
         st.stop()
 
     df = st.session_state.df
@@ -772,9 +783,10 @@ with tab_log:
                     except Exception as e:
                         st.error(f"Odoo product create error: {e}")
                 elif skip_clicked:
-                    new_idx = (idx + 1) % len(missing_products)
-                    st.session_state.current_missing_index = new_idx
-                    st.info("➡ Moved to next missing product.")
+                    if len(missing_products) > 0:
+                        new_idx = (idx + 1) % len(missing_products)
+                        st.session_state.current_missing_index = new_idx
+                        st.info("➡ Moved to next missing product.")
     else:
         if company_snapshot:
             st.info("No missing products. You can now create Purchase Order.")
@@ -823,19 +835,6 @@ with tab_log:
                         {"context": ctx},
                     )
                     st.success(f"✅ {tr('success_po')} ({company_snapshot['company_name']}) : ID {po_id}")
-                    st.markdown(
-                        """
-                        <div style="
-                            margin-top:0.6rem;
-                            font-size:0.9rem;
-                            color:#a5b4fc;
-                            animation: fadeInUp 0.45s ease-out;
-                        ">
-                            Sync ready — open Odoo, review lines, then confirm & receive.
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
                 except Exception as e:
                     st.error(f"Odoo PO create error: {e}")
 
