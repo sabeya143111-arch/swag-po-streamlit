@@ -1,4 +1,4 @@
-# app.py  (SWAG PO Creator – EN+AR, light UI, multi‑company, confirm step)
+# app.py  (SWAG PO Creator – EN+AR, light UI, multi‑company, confirm step + missing product create)
 
 import streamlit as st
 import pandas as pd
@@ -159,8 +159,8 @@ st.markdown(
     """
     <style>
     .stApp {
-        background-color: #f3f4f6;           /* light grey page */
-        color: #111827;                      /* dark text */
+        background-color: #f3f4f6;
+        color: #111827;
         font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont,
                      "Segoe UI", sans-serif;
     }
@@ -178,7 +178,7 @@ st.markdown(
         margin-bottom: 0.6rem;
     }
     .glass-card {
-        background: #ffffff;                 /* white cards */
+        background: #ffffff;
         border-radius: 16px;
         padding: 1.2rem 1.4rem;
         border: 1px solid #e5e7eb;
@@ -510,12 +510,71 @@ if create_po_clicked:
             f"**{tr('company_label')}:** {company_name}  |  "
             f"**{tr('supplier_label')}:** {int(DEFAULT_PARTNER_ID)}"
         )
+
+        # ==== NEW: Missing product create form ====
         if missing_products:
             st.warning(tr("log_missing_warning"))
+
+            missing_df = pd.DataFrame(missing_products)
             missing_df_placeholder.dataframe(
-                pd.DataFrame(missing_products),
+                missing_df,
                 use_container_width=True,
             )
+
+            st.markdown("### ➕ Create missing products")
+
+            row_options = [
+                f"Row {r['Excel Row']} - {r['Internal Reference']} / {r['Description']}"
+                for r in missing_products
+            ]
+            selected_index = st.selectbox(
+                "Select missing line to create product",
+                options=range(len(row_options)),
+                format_func=lambda i: row_options[i],
+            )
+
+            sel = missing_products[selected_index]
+            default_code = sel["Internal Reference"]
+            default_name = sel["Description"]
+
+            with st.form(key=f"create_product_form_{selected_index}"):
+                st.write("Fill product details (Odoo product.template fields)")
+
+                internal_ref = st.text_input("Internal Reference", value=default_code)
+                barcode = st.text_input("Barcode")
+                old_barcode = st.text_input("Old Barcode")
+                season = st.text_input("Season")
+                brand = st.text_input("Brand")
+                cost_price = st.number_input("Cost Price", min_value=0.0, step=0.01)
+                sale_price = st.number_input("Sales Price", min_value=0.0, step=0.01)
+
+                submitted = st.form_submit_button("Create product in Odoo")
+
+            if submitted:
+                try:
+                    product_vals = {
+                        "name": default_name,
+                        "default_code": internal_ref,
+                        "barcode": barcode or False,
+                        "standard_price": cost_price,
+                        "list_price": sale_price,
+                        "x_old_barcode": old_barcode or False,
+                        "x_season": season or False,
+                        "x_brand": brand or False,
+                        "company_id": company_id,
+                    }
+
+                    template_id = models.execute_kw(
+                        db, uid, password,
+                        "product.template", "create",
+                        [product_vals],
+                        {"context": ctx},
+                    )
+
+                    st.success(f"✅ Product created (template ID {template_id}) for {internal_ref}")
+                    st.info("Ab dobara **Create Draft Purchase Order** button press karo taake naya product pick ho jaye.")
+                except Exception as e:
+                    st.error(f"Odoo product create error: {e}")
 
     if not lines:
         st.error(tr("log_no_match"))
