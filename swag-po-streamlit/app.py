@@ -1,4 +1,4 @@
-# app.py  (SWAG PO Creator – EN+AR, light UI, multi‑company, confirm step + missing product one‑by‑one wizard with state)
+# app.py  (SWAG PO Creator – EN+AR, premium UI, multi‑company, confirm step + missing product wizard)
 
 import streamlit as st
 import pandas as pd
@@ -157,88 +157,119 @@ T = {
 def tr(key):
     return T.get(key, {}).get(st.session_state.lang, T.get(key, {}).get("en", key))
 
-# ========= CSS =========
+# ========= PREMIUM CSS =========
 st.markdown(
     """
     <style>
-    .stApp {
-        background-color: #f3f4f6;
-        color: #111827;
-        font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont,
-                     "Segoe UI", sans-serif;
+    [data-testid="stAppViewContainer"] {
+        background: radial-gradient(circle at top left, #1f2937 0, #020617 45%, #000000 100%);
+        color: #e5e7eb;
+    }
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #020617, #111827);
+        border-right: 1px solid rgba(148, 163, 184, 0.35);
+    }
+    .stSidebar .stMarkdown, .stSidebar label, .stSidebar input, .stSidebar span {
+        color: #e5e7eb !important;
     }
     .main-title {
-        font-size: 2.3rem;
+        font-size: 2.6rem;
         font-weight: 800;
         margin-bottom: 0.2rem;
-        background: linear-gradient(90deg, #2563eb, #7c3aed, #f97316);
+        background: linear-gradient(120deg, #38bdf8, #a855f7, #f97316);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
+        letter-spacing: 0.03em;
     }
     .sub-caption {
-        font-size: 0.95rem;
-        color: #4b5563;
-        margin-bottom: 0.6rem;
+        font-size: 0.98rem;
+        color: #9ca3af;
+        margin-bottom: 0.9rem;
     }
     .glass-card {
-        background: #ffffff;
-        border-radius: 16px;
-        padding: 1.2rem 1.4rem;
-        border: 1px solid #e5e7eb;
-        box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+        background: radial-gradient(circle at top left, rgba(15,23,42,0.96), rgba(15,23,42,0.86));
+        border-radius: 18px;
+        padding: 1.5rem 1.6rem;
+        border: 1px solid rgba(148,163,184,0.45);
+        box-shadow: 0 22px 60px rgba(15, 23, 42, 0.65);
+        backdrop-filter: blur(16px);
     }
     .metric-pill {
         border-radius: 999px;
-        padding: 0.25rem 0.9rem;
-        font-size: 0.78rem;
+        padding: 0.35rem 1.1rem;
+        font-size: 0.8rem;
         text-transform: uppercase;
-        letter-spacing: 0.08em;
-        background: #e5f0ff;
-        color: #111827;
+        letter-spacing: 0.12em;
+        background: rgba(15,23,42,0.85);
+        border: 1px solid rgba(56,189,248,0.7);
+        color: #e5e7eb;
         display: inline-flex;
         align-items: center;
         gap: 0.35rem;
     }
-    .metric-pill span.icon { font-size: 0.95rem; }
+    .metric-pill span.icon { font-size: 1rem; }
     .info-badge, .warn-badge {
         border-radius: 999px;
-        padding: 0.25rem 0.8rem;
-        font-size: 0.78rem;
+        padding: 0.3rem 0.9rem;
+        font-size: 0.8rem;
         display: inline-flex;
         align-items: center;
-        gap: 0.3rem;
+        gap: 0.35rem;
     }
     .info-badge {
-        background: #e0f2fe;
-        border: 1px solid #bae6fd;
-        color: #0f172a;
+        background: rgba(8,47,73,0.92);
+        border: 1px solid rgba(56,189,248,0.7);
+        color: #e0f2fe;
     }
     .warn-badge {
-        background: #fee2e2;
-        border: 1px solid #fecaca;
-        color: #7f1d1d;
+        background: rgba(127,29,29,0.92);
+        border: 1px solid rgba(248,113,113,0.7);
+        color: #fee2e2;
     }
     .upload-box > div[data-testid="stFileUploader"] {
-        background: #ffffff;
-        border-radius: 12px;
+        background: rgba(15,23,42,0.9);
+        border-radius: 14px;
         padding: 1rem;
-        border: 1px dashed #cbd5f5;
+        border: 1px dashed rgba(148,163,184,0.7);
+        color: #e5e7eb;
     }
     .stButton>button {
         border-radius: 999px;
-        border: 1px solid #60a5fa;
-        padding: 0.45rem 1.3rem;
+        border: 1px solid rgba(56,189,248,0.9);
+        padding: 0.5rem 1.4rem;
         font-size: 0.9rem;
         font-weight: 500;
-        background: linear-gradient(135deg, #3b82f6 0%, #0ea5e9 100%);
+        background: linear-gradient(135deg, #0ea5e9 0%, #6366f1 50%, #a855f7 100%);
         color: #f9fafb;
+        box-shadow: 0 16px 35px rgba(37,99,235,0.45);
         transition: all 0.18s ease-in-out;
     }
     .stButton>button:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 10px 22px rgba(37, 99, 235, 0.35);
+        transform: translateY(-2px) scale(1.02);
+        box-shadow: 0 22px 45px rgba(59,130,246,0.75);
     }
-    .stDataFrame, .stTable { font-size: 0.9rem; color: #111827; }
+    .stButton>button:active {
+        transform: translateY(0px) scale(0.99);
+        box-shadow: 0 8px 18px rgba(15,23,42,0.9);
+    }
+    .stDataFrame, .stTable {
+        font-size: 0.9rem;
+        color: #e5e7eb;
+    }
+    button[data-baseweb="tab"] {
+        background: transparent !important;
+        border: none !important;
+        color: #9ca3af !important;
+        font-weight: 500;
+    }
+    button[data-baseweb="tab"][aria-selected="true"] {
+        color: #e5e7eb !important;
+        border-bottom: 2px solid #38bdf8 !important;
+    }
+    @keyframes fadeInUp {
+        from { opacity:0; transform: translateY(6px); }
+        to { opacity:1; transform: translateY(0px); }
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -261,9 +292,56 @@ with h2:
         unsafe_allow_html=True,
     )
 
+# ========= HERO CARDS =========
+hero_left, hero_right = st.columns([1.6, 1])
+
+with hero_left:
+    st.markdown(
+        """
+        <div class="glass-card" style="padding:1.1rem 1.3rem; margin-bottom:0.8rem;">
+            <div style="font-size:0.82rem; text-transform:uppercase; letter-spacing:0.16em; color:#9ca3af;">
+                PURCHASE OPS CONTROL PANEL
+            </div>
+            <div style="font-size:1.05rem; margin-top:0.35rem; color:#e5e7eb;">
+                Scan supplier Excel, validate SKUs, and spin up a clean draft PO in under
+                <span style="color:#38bdf8; font-weight:600;">30 seconds</span>.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+with hero_right:
+    rows = len(st.session_state.df) if st.session_state.get("df") is not None else 0
+    matched = len(st.session_state.po_lines) if st.session_state.get("po_lines") else 0
+    st.markdown(
+        f"""
+        <div class="glass-card" style="padding:0.9rem 1.1rem; margin-bottom:0.8rem;">
+            <div style="font-size:0.8rem; color:#9ca3af; margin-bottom:0.4rem;">
+                Today's session
+            </div>
+            <div style="display:flex; justify-content:space-between; font-size:0.9rem;">
+                <div>
+                    <div style="color:#e5e7eb;">Uploaded lines</div>
+                    <div style="color:#38bdf8; font-size:1.1rem; font-weight:600;">
+                        {rows}
+                    </div>
+                </div>
+                <div>
+                    <div style="color:#e5e7eb;">Matched SKUs</div>
+                    <div style="color:#22c55e; font-size:1.1rem; font-weight:600;">
+                        {matched}
+                    </div>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
 st.markdown("")
 
-# ========= SIDEBAR (language + connection) =========
+# ========= SIDEBAR =========
 with st.sidebar:
     st.markdown("### 🌐 " + tr("lang_label"))
     lang_choice = st.radio(
@@ -354,7 +432,7 @@ with tab_upload:
                     connection_status.error(f"❌ {e}")
 
         if st.button(tr("btn_load_company"), key="choose_company_btn"):
-            if not (ODOO_URL and ODOO_DB and ODOO_USERNAME and ODOO_API_KEY):
+            if not (ODOO_URL and ODOO_DB and OODO_USERNAME and ODOO_API_KEY):
                 st.error(tr("err_fill_conn"))
             else:
                 try:
@@ -510,7 +588,6 @@ if create_po_clicked:
             )
             log_messages.append(f"✅ Row {idx+2}: {code} → Product ID {product_id}")
 
-    # store result in state
     st.session_state.po_lines = lines
     st.session_state.po_missing_products = missing_products
     st.session_state.company_snapshot = {
@@ -525,7 +602,7 @@ if create_po_clicked:
     st.session_state.log_messages = log_messages
     st.session_state.current_missing_index = 0
 
-# ========= STEP 2: Always show Log tab + wizard =========
+# ========= STEP 2: Log tab + wizard =========
 with tab_log:
     st.markdown('<div class="glass-card">', unsafe_allow_html=True)
     log_area = st.empty()
@@ -548,7 +625,7 @@ with tab_log:
             f"**{tr('supplier_label')}:** {int(DEFAULT_PARTNER_ID)}"
         )
 
-    # ----- Missing product one‑by‑one wizard -----
+    # ----- Missing product wizard -----
     if missing_products:
         st.markdown(
             f'<div class="info-badge">Missing products: {len(missing_products)}</div>',
@@ -569,6 +646,23 @@ with tab_log:
             st.session_state.current_missing_index = 0
 
         current = missing_products[idx]
+
+        st.markdown(
+            f"""
+            <div style="
+                margin-top:0.8rem;
+                margin-bottom:0.5rem;
+                padding:0.9rem 1.0rem;
+                border-radius:14px;
+                border:1px solid rgba(148,163,184,0.55);
+                background:radial-gradient(circle at top left, rgba(15,23,42,0.98), rgba(15,23,42,0.92));
+                box-shadow:0 16px 40px rgba(15,23,42,0.75);
+                animation: fadeInUp 0.45s ease-out;
+            ">
+            """,
+            unsafe_allow_html=True,
+        )
+
         st.markdown(
             f"Working on Excel Row **{current['Excel Row']}** "
             f"({current['Internal Reference']} - {current['Description']})"
@@ -601,6 +695,8 @@ with tab_log:
                 create_clicked = st.form_submit_button("✅ Create product in Odoo")
             with b2:
                 skip_clicked = st.form_submit_button("➡ Skip this product")
+
+        st.markdown("</div>", unsafe_allow_html=True)
 
         if create_clicked or skip_clicked:
             try:
@@ -669,7 +765,6 @@ with tab_log:
                             f"for {internal_ref}"
                         )
 
-                        # remove current item and reset index
                         missing_products.pop(idx)
                         st.session_state.po_missing_products = missing_products
                         st.session_state.current_missing_index = 0
@@ -684,7 +779,7 @@ with tab_log:
         if company_snapshot:
             st.info("No missing products. You can now create Purchase Order.")
 
-    # ----- Final PO create button (after products ready) -----
+    # ----- Final PO create button -----
     if lines:
         st.markdown("---")
         if st.button("🚀 Create Draft Purchase Order in Odoo (using matched lines)"):
@@ -728,7 +823,19 @@ with tab_log:
                         {"context": ctx},
                     )
                     st.success(f"✅ {tr('success_po')} ({company_snapshot['company_name']}) : ID {po_id}")
-                    st.info(tr("next_steps"))
+                    st.markdown(
+                        """
+                        <div style="
+                            margin-top:0.6rem;
+                            font-size:0.9rem;
+                            color:#a5b4fc;
+                            animation: fadeInUp 0.45s ease-out;
+                        ">
+                            Sync ready — open Odoo, review lines, then confirm & receive.
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
                 except Exception as e:
                     st.error(f"Odoo PO create error: {e}")
 
