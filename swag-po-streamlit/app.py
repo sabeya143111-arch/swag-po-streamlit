@@ -543,13 +543,17 @@ with tab_log:
     if company_snapshot:
         company_name = company_snapshot["company_name"]
         summary_placeholder.markdown(
-            f"**{tr('matched_label')}:** {len(lines)}/{len(lines) + len(missing_products)}\n\n"
-            f"**{tr('company_label')}:** {company_name}  |  "
+            f"**{tr('matched_label')}:** {len(lines)}/{len(lines) + len(missing_products)}  "
+            f"|  **{tr('company_label')}:** {company_name}  |  "
             f"**{tr('supplier_label')}:** {int(DEFAULT_PARTNER_ID)}"
         )
 
     # ----- Missing product one‑by‑one wizard -----
     if missing_products:
+        st.markdown(
+            f'<div class="info-badge">Missing products: {len(missing_products)}</div>',
+            unsafe_allow_html=True,
+        )
         st.warning(tr("log_missing_warning"))
 
         missing_df_placeholder.dataframe(
@@ -559,7 +563,7 @@ with tab_log:
 
         st.markdown("### ➕ Create missing products (one by one)")
 
-        idx = st.session_state.current_missing_index
+        idx = st.session_state.get("current_missing_index", 0)
         if idx >= len(missing_products):
             idx = 0
             st.session_state.current_missing_index = 0
@@ -570,28 +574,35 @@ with tab_log:
             f"({current['Internal Reference']} - {current['Description']})"
         )
 
-        with st.form(key="create_single_missing_product"):
-            internal_ref = st.text_input(
-                "Internal Reference",
-                value=current["Internal Reference"],
-                key="f_internal_ref",
-            )
-            barcode = st.text_input("Barcode", key="f_barcode")
-            old_barcode = st.text_input("Old Barcode", key="f_old_barcode")
-            season = st.text_input("Season", key="f_season")
-            brand = st.text_input("Brand", key="f_brand")
-            cost_price = st.number_input(
-                "Cost Price", min_value=0.0, step=0.01, key="f_cost_price"
-            )
-            sale_price = st.number_input(
-                "Sales Price", min_value=0.0, step=0.01, key="f_sale_price"
-            )
+        left_col, right_col = st.columns(2)
 
-            create_clicked = st.form_submit_button("Create product in Odoo")
-            skip_clicked = st.form_submit_button("Skip this product")
+        with st.form(key="create_single_missing_product"):
+            with left_col:
+                internal_ref = st.text_input(
+                    "Internal Reference (SKU)",
+                    value=current["Internal Reference"],
+                    key="f_internal_ref",
+                )
+                barcode = st.text_input("Barcode", key="f_barcode")
+                old_barcode = st.text_input("Old Barcode", key="f_old_barcode")
+
+            with right_col:
+                season = st.text_input("Season", key="f_season")
+                brand = st.text_input("Brand", key="f_brand")
+                cost_price = st.number_input(
+                    "Cost Price", min_value=0.0, step=0.01, key="f_cost_price"
+                )
+                sale_price = st.number_input(
+                    "Sales Price", min_value=0.0, step=0.01, key="f_sale_price"
+                )
+
+            b1, b2 = st.columns(2)
+            with b1:
+                create_clicked = st.form_submit_button("✅ Create product in Odoo")
+            with b2:
+                skip_clicked = st.form_submit_button("➡ Skip this product")
 
         if create_clicked or skip_clicked:
-            # re‑connect
             try:
                 ODOO_URL = company_snapshot["ODOO_URL"]
                 ODOO_DB = company_snapshot["ODOO_DB"]
@@ -607,8 +618,6 @@ with tab_log:
             else:
                 if create_clicked:
                     try:
-                        # -------- FIXED SAFE PRODUCT CREATE --------
-                        # product.template ke available fields read karo
                         model_fields = models.execute_kw(
                             db, uid, password,
                             "product.template", "fields_get",
@@ -617,7 +626,6 @@ with tab_log:
                         )
                         existing_field_names = set(model_fields.keys())
 
-                        # base vals (standard Odoo fields)
                         product_vals = {
                             "name": current["Description"],
                             "default_code": internal_ref,
@@ -627,34 +635,27 @@ with tab_log:
                             "company_id": company_id,
                         }
 
-                        # custom fields ke possible technical names
                         custom_field_candidates = {
                             "old_barcode": ["x_old_barcode", "x_studio_old_barcode"],
                             "season": ["x_season", "x_studio_season"],
                             "brand": ["x_brand", "x_studio_brand"],
                         }
 
-                        # Old Barcode
                         if old_barcode:
                             for fname in custom_field_candidates["old_barcode"]:
                                 if fname in existing_field_names:
                                     product_vals[fname] = old_barcode
                                     break
-
-                        # Season
                         if season:
                             for fname in custom_field_candidates["season"]:
                                 if fname in existing_field_names:
                                     product_vals[fname] = season
                                     break
-
-                        # Brand
                         if brand:
                             for fname in custom_field_candidates["brand"]:
                                 if fname in existing_field_names:
                                     product_vals[fname] = brand
                                     break
-                        # -------- FIX BLOCK END --------
 
                         template_id = models.execute_kw(
                             db, uid, password,
@@ -668,7 +669,7 @@ with tab_log:
                             f"for {internal_ref}"
                         )
 
-                        # current item remove
+                        # remove current item and reset index
                         missing_products.pop(idx)
                         st.session_state.po_missing_products = missing_products
                         st.session_state.current_missing_index = 0
@@ -676,8 +677,9 @@ with tab_log:
                     except Exception as e:
                         st.error(f"Odoo product create error: {e}")
                 elif skip_clicked:
-                    st.session_state.current_missing_index = (idx + 1) % len(missing_products)
-
+                    new_idx = (idx + 1) % len(missing_products)
+                    st.session_state.current_missing_index = new_idx
+                    st.info("➡ Moved to next missing product.")
     else:
         if company_snapshot:
             st.info("No missing products. You can now create Purchase Order.")
