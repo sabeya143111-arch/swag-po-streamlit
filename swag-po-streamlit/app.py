@@ -78,14 +78,12 @@ T = {
     "pdf_help_title": {"en": "PDF Invoice Help", "ar": "مساعدة فاتورة PDF"},
     "pdf_help_text": {
         "en": (
-            "- PDF format same as SWAG sales invoice like sample S89631:\n"
-            "  - Lines containing totals like `SR 2,070.00` and codes like `RVH010`.\n"
-            "  - Parser pulls: model code (as name), quantity, price (without tax).\n"
+            "- PDF format same as SWAG sales invoice.\n"
+            "  - Parser pulls: model code (e.g. TX2442), quantity, price (without tax).\n"
         ),
         "ar": (
-            "- شكل فاتورة PDF مثل فاتورة مبيعات SWAG (نموذج S89631):\n"
-            "  - أسطر فيها الإجمالي مثل `SR 2,070.00` و كود مثل `RVH010`.\n"
-            "  - المعالج يستخرج: كود الموديل (كاسم)، الكمية، السعر بدون ضريبة.\n"
+            "- شكل فاتورة PDF مثل فاتورة مبيعات SWAG.\n"
+            "  - المعالج يستخرج: كود الموديل مثل TX2442، الكمية، السعر بدون ضريبة.\n"
         ),
     },
     "excel_tip": {
@@ -208,37 +206,6 @@ st.markdown(
         box-shadow: 0 22px 60px rgba(15, 23, 42, 0.65);
         backdrop-filter: blur(16px);
     }
-    .metric-pill {
-        border-radius: 999px;
-        padding: 0.35rem 1.1rem;
-        font-size: 0.8rem;
-        text-transform: uppercase;
-        letter-spacing: 0.12em;
-        background: rgba(15,23,42,0.85);
-        border: 1px solid rgba(56,189,248,0.7);
-        color: #e5e7eb;
-        display: inline-flex;
-        align-items: center;
-        gap: 0.35rem;
-    }
-    .info-badge, .warn-badge {
-        border-radius: 999px;
-        padding: 0.3rem 0.9rem;
-        font-size: 0.8rem;
-        display: inline-flex;
-        align-items: center;
-        gap: 0.35rem;
-    }
-    .info-badge {
-        background: rgba(8,47,73,0.92);
-        border: 1px solid rgba(56,189,248,0.7);
-        color: #e0f2fe;
-    }
-    .warn-badge {
-        background: rgba(127,29,29,0.92);
-        border: 1px solid rgba(248,113,113,0.7);
-        color: #fee2e2;
-    }
     .upload-box > div[data-testid="stFileUploader"] {
         background: rgba(15,23,42,0.9);
         border-radius: 14px;
@@ -305,13 +272,13 @@ def load_distributions(models, db, uid, password):
     )
     return dists
 
-# ========= PDF PARSER (model as name + invoice total) =========
+# ========= PDF PARSER (TX2442-style model + total) =========
 def parse_swag_pdf_to_df(file_bytes: bytes) -> pd.DataFrame:
     """
     Parse SWAG invoice PDF into:
     - order_line/name  -> model code (e.g. TX2442)
     - order_line/product_uom_qty -> quantity
-    - order_line/price_unit -> unit price (without tax)
+    - order_line/price_unit -> unit price
     Also sets st.session_state.pdf_total = last SR amount in the PDF.
     """
     import re
@@ -323,7 +290,6 @@ def parse_swag_pdf_to_df(file_bytes: bytes) -> pd.DataFrame:
             t = page.extract_text() or ""
             full_text += t + "\n"
 
-    # --- 1) Line items ---
     for line in full_text.splitlines():
         if "SR" not in line:
             continue
@@ -339,10 +305,10 @@ def parse_swag_pdf_to_df(file_bytes: bytes) -> pd.DataFrame:
                 continue
             qty = float(qty_match.group(1))
 
-            model_match = re.search(r"([A-Za-z0-9\-]+)\s*$", line)
-            if not model_match:
-                continue
-            model = model_match.group(1)
+            # Model: last token that has at least one letter (so 1,2,3 skip)
+            tokens = re.findall(r"[A-Za-z0-9\-]+", line)
+            model_candidates = [t for t in tokens if re.search(r"[A-Za-z]", t)]
+            model = model_candidates[-1] if model_candidates else line.strip()
 
             rows.append(
                 {
@@ -354,8 +320,6 @@ def parse_swag_pdf_to_df(file_bytes: bytes) -> pd.DataFrame:
         except Exception:
             continue
 
-    # --- 2) Invoice total (last SR amount in whole PDF) ---
-    import re
     all_amounts = re.findall(r"SR\s*([\d,]+\.?\d*)", full_text)
     if all_amounts:
         total_str = all_amounts[-1].replace(",", "")
