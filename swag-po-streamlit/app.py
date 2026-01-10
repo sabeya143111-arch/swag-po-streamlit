@@ -1,5 +1,4 @@
-# app.py – SWAG PO Creator (EN+AR)
-# Features: Excel → Vendor / Deliver To / Analytic Distribution → Draft PO in Odoo
+# app.py  (SWAG PO Creator – EN+AR, with vendor / deliver / distribution dropdowns)
 
 import streamlit as st
 import pandas as pd
@@ -40,8 +39,8 @@ T = {
         "ar": "منشئ أوامر الشراء SWAG",
     },
     "subtitle": {
-        "en": "Upload Excel → Choose company → Vendor/Deliver/Distribution → Draft Purchase Order in Odoo.",
-        "ar": "ارفع ملف إكسل → اختر الشركة → المورّد/التسليم/التوزيع التحليلي → إنشاء أمر شراء مسودة في أودو.",
+        "en": "Upload Excel → Choose company → Vendor / Deliver / Distribution → Draft PO in Odoo.",
+        "ar": "ارفع ملف إكسل → اختر الشركة → المورّد / التسليم / التوزيع التحليلي → إنشاء أمر شراء مسودة في أودو.",
     },
     "badge_main": {
         "en": "Multi‑Company • XML‑RPC • Excel Automation",
@@ -52,8 +51,12 @@ T = {
         "ar": "مخصص لقسم المشتريات والعمليات",
     },
     "sidebar_conn": {"en": "Odoo Connection", "ar": "اتصال أودو"},
+    "odoo_url": {"en": "Odoo URL", "ar": "رابط أودو"},
+    "db": {"en": "Database", "ar": "قاعدة البيانات"},
+    "username": {"en": "Username / Email", "ar": "اسم المستخدم / البريد الإلكتروني"},
+    "api_key": {"en": "API Key / Password", "ar": "مفتاح API / كلمة المرور"},
     "sidebar_defaults": {"en": "Default Settings", "ar": "الإعدادات الافتراضية"},
-    "default_supplier": {"en": "Default Supplier ID", "ar": "معرّف المورد الافتراضي"},
+    "default_supplier": {"en": "Default Supplier ID (fallback)", "ar": "معرّف المورد الافتراضي (احتياطي)"},
     "excel_help_title": {"en": "Excel Format Help", "ar": "مساعدة في تنسيق الإكسل"},
     "excel_help_text": {
         "en": (
@@ -157,7 +160,7 @@ T = {
 def tr(key):
     return T.get(key, {}).get(st.session_state.lang, T.get(key, {}).get("en", key))
 
-# ========= PREMIUM CSS (same as before) =========
+# ========= PREMIUM CSS =========
 st.markdown(
     """
     <style>
@@ -275,11 +278,62 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ========= ODOO CREDENTIALS FROM SECRETS =========
-ODOO_URL = st.secrets["odoo"]["url"]
-ODOO_DB = st.secrets["odoo"]["db"]
-ODOO_USERNAME = st.secrets["odoo"]["username"]
-ODOO_API_KEY = st.secrets["odoo"]["api_key"]
+# ========= XML‑RPC HELPERS =========
+@st.cache_resource(show_spinner=False)
+def get_odoo_connection(url, db, username, api_key):
+    common = xmlrpc.client.ServerProxy(f"{url}/xmlrpc/2/common")
+    uid = common.authenticate(db, username, api_key, {})
+    if not uid:
+        raise Exception("Authentication failed! URL / DB / username / API key check karo.")
+    models = xmlrpc.client.ServerProxy(f"{url}/xmlrpc/2/object")
+    return db, uid, api_key, models
+
+def load_companies(models, db, uid, password):
+    return models.execute_kw(
+        db, uid, password,
+        "res.company", "search_read",
+        [[]],
+        {"fields": ["name"], "limit": 50},
+    )
+
+def load_vendors(models, db, uid, password):
+    partners = models.execute_kw(
+        db, uid, password,
+        "res.partner", "search_read",
+        [[["supplier_rank", ">", 0]]],
+        {"fields": ["name"], "limit": 200},
+    )
+    return partners
+
+def load_picking_types(models, db, uid, password):
+    pickings = models.execute_kw(
+        db, uid, password,
+        "stock.picking.type", "search_read",
+        [[["code", "=", "incoming"]]],
+        {"fields": ["name"], "limit": 50},
+    )
+    return pickings
+
+def load_distributions(models, db, uid, password):
+    # If your Analytic Distribution model is different, change model name here
+    dists = models.execute_kw(
+        db, uid, password,
+        "account.analytic.distribution", "search_read",
+        [[]],
+        {"fields": ["name"], "limit": 200},
+    )
+    return dists
+
+def get_product_id_by_code(models, db, uid, password, code, context=None):
+    if context is None:
+        context = {}
+    product_ids = models.execute_kw(
+        db, uid, password,
+        "product.product", "search",
+        [[["default_code", "=", code]]],
+        {"limit": 1, "context": context},
+    )
+    return product_ids[0] if product_ids else False
 
 # ========= HEADER =========
 st.markdown(f'<p class="main-title">{tr("title")}</p>', unsafe_allow_html=True)
@@ -347,62 +401,81 @@ with hero_right:
 
 st.markdown("")
 
-# ========= XML‑RPC HELPERS =========
-@st.cache_resource(show_spinner=False)
-def get_odoo_connection(url, db, username, api_key):
-    common = xmlrpc.client.ServerProxy(f"{url}/xmlrpc/2/common")
-    uid = common.authenticate(db, username, api_key, {})
-    if not uid:
-        raise Exception("Authentication failed! URL / DB / username / API key check karo.")
-    models = xmlrpc.client.ServerProxy(f"{url}/xmlrpc/2/object")
-    return db, uid, api_key, models
+# ========= SIDEBAR =========
+with st.sidebar:
+    st.markdown("### 🌐 " + tr("lang_label"))
+    lang_choice = st.radio(
+        "",
+        options=["en", "ar"],
+        index=0 if st.session_state.lang == "en" else 1,
+        format_func=lambda x: tr("lang_en") if x == "en" else tr("lang_ar"),
+    )
+    st.session_state.lang = lang_choice
 
-def load_companies(models, db, uid, password):
-    return models.execute_kw(
-        db, uid, password,
-        "res.company", "search_read",
-        [[]],
-        {"fields": ["name"], "limit": 50},
+    st.markdown("### 🔐 " + tr("sidebar_conn"))
+    ODOO_URL = st.text_input(tr("odoo_url"), "https://tariqueswag1231.odoo.com")
+    ODOO_DB = st.text_input(tr("db"), "tariqueswag1231")
+    ODOO_USERNAME = st.text_input(tr("username"), "tarique143111@gmail.com")
+    ODOO_API_KEY = st.text_input(tr("api_key"), type="password")
+
+    st.markdown("### 🧷 Vendor & Delivery")
+
+    vendors, pickings, distributions = [], [], []
+    if ODOO_URL and ODOO_DB and ODOO_USERNAME and ODOO_API_KEY:
+        try:
+            db, uid, password, models = get_odoo_connection(
+                ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_API_KEY
+            )
+            vendors = load_vendors(models, db, uid, password)
+            pickings = load_picking_types(models, db, uid, password)
+            distributions = load_distributions(models, db, uid, password)
+        except Exception as e:
+            st.error(f"Odoo master data error: {e}")
+
+    # Vendor select
+    if vendors:
+        vendor_names = [v["name"] for v in vendors]
+        vendor_choice = st.selectbox("Vendor", vendor_names, key="vendor_select")
+        st.session_state.vendor_id = next(
+            v["id"] for v in vendors if v["name"] == vendor_choice
+        )
+    else:
+        st.session_state.vendor_id = None
+
+    # Deliver To / Picking Type
+    if pickings:
+        picking_names = [p["name"] for p in pickings]
+        picking_choice = st.selectbox(
+            "Deliver To / Operation Type", picking_names, key="picking_select"
+        )
+        st.session_state.picking_type_id = next(
+            p["id"] for p in pickings if p["name"] == picking_choice
+        )
+    else:
+        st.session_state.picking_type_id = None
+
+    # Analytic Distribution
+    if distributions:
+        dist_names = [d["name"] for d in distributions]
+        dist_choice = st.selectbox(
+            "Analytic Distribution", dist_names, key="dist_select"
+        )
+        st.session_state.distribution_id = next(
+            d["id"] for d in distributions if d["name"] == dist_choice
+        )
+    else:
+        st.session_state.distribution_id = None
+
+    st.markdown("---")
+    st.markdown("### 🧾 " + tr("sidebar_defaults"))
+    DEFAULT_PARTNER_ID = st.number_input(
+        tr("default_supplier"), min_value=1, value=1, step=1
     )
 
-def load_vendors(models, db, uid, password):
-    partners = models.execute_kw(
-        db, uid, password,
-        "res.partner", "search_read",
-        [[["supplier_rank", ">", 0]]],
-        {"fields": ["name"], "limit": 200},
-    )
-    return partners
-
-def load_picking_types(models, db, uid, password):
-    pickings = models.execute_kw(
-        db, uid, password,
-        "stock.picking.type", "search_read",
-        [[["code", "=", "incoming"]]],
-        {"fields": ["name"], "limit": 50},
-    )
-    return pickings
-
-def load_distributions(models, db, uid, password):
-    # NOTE: change model name / fields if your Analytic Distribution module uses different names
-    dists = models.execute_kw(
-        db, uid, password,
-        "account.analytic.distribution", "search_read",
-        [[]],
-        {"fields": ["name"], "limit": 200},
-    )
-    return dists
-
-def get_product_id_by_code(models, db, uid, password, code, context=None):
-    if context is None:
-        context = {}
-    product_ids = models.execute_kw(
-        db, uid, password,
-        "product.product", "search",
-        [[["default_code", "=", code]]],
-        {"limit": 1, "context": context},
-    )
-    return product_ids[0] if product_ids else False
+    st.markdown("---")
+    with st.expander(tr("excel_help_title"), expanded=False):
+        st.write(tr("excel_help_text"))
+        st.caption(tr("excel_tip"))
 
 connection_status = st.empty()
 
@@ -428,38 +501,46 @@ with tab_upload:
         st.markdown("#### " + tr("step2_company"))
 
         if st.button(tr("btn_test_conn"), key="test_conn"):
-            try:
-                db, uid, password, models = get_odoo_connection(
-                    ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_API_KEY
-                )
-                connection_status.success(f"Connected to Odoo (UID: {uid})")
-            except Exception as e:
-                connection_status.error(f"❌ {e}")
+            if not (ODOO_URL and ODOO_DB and ODOO_USERNAME and ODOO_API_KEY):
+                st.error("Fill Odoo connection in sidebar.")
+            else:
+                try:
+                    db, uid, password, models = get_odoo_connection(
+                        ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_API_KEY
+                    )
+                    connection_status.success(f"Connected to Odoo (UID: {uid})")
+                except Exception as e:
+                    connection_status.error(f"❌ {e}")
 
         if st.button(tr("btn_load_company"), key="choose_company_btn"):
-            try:
-                db, uid, password, models = get_odoo_connection(
-                    ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_API_KEY
-                )
-                companies = load_companies(models, db, uid, password)
-            except Exception as e:
-                st.error(f"Company load error: {e}")
-                companies = []
-
-            if not companies:
-                st.error("No companies found in Odoo.")
+            if not (ODOO_URL and ODOO_DB and ODOO_USERNAME and ODOO_API_KEY):
+                st.error("Fill Odoo connection in sidebar.")
             else:
-                names = [c["name"] for c in companies]
-                selected_name = st.selectbox(
-                    tr("select_company_label"),
-                    names,
-                    key="company_select_runtime",
-                )
-                if selected_name:
-                    company_id = next(c["id"] for c in companies if c["name"] == selected_name)
-                    st.session_state.company_name = selected_name
-                    st.session_state.company_id = company_id
-                    st.session_state.company_chosen = False
+                try:
+                    db, uid, password, models = get_odoo_connection(
+                        ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_API_KEY
+                    )
+                    companies = load_companies(models, db, uid, password)
+                except Exception as e:
+                    st.error(f"Company load error: {e}")
+                    companies = []
+
+                if not companies:
+                    st.error("No companies found in Odoo.")
+                else:
+                    names = [c["name"] for c in companies]
+                    selected_name = st.selectbox(
+                        tr("select_company_label"),
+                        names,
+                        key="company_select_runtime",
+                    )
+                    if selected_name:
+                        company_id = next(
+                            c["id"] for c in companies if c["name"] == selected_name
+                        )
+                        st.session_state.company_name = selected_name
+                        st.session_state.company_id = company_id
+                        st.session_state.company_chosen = False
 
         if st.session_state.company_id:
             st.markdown(
@@ -473,72 +554,6 @@ with tab_upload:
 
     st.markdown("---")
 
-    # ========= SIDEBAR: Language + Vendor / Deliver / Distribution =========
-with st.sidebar:
-    st.markdown("### 🌐 " + tr("lang_label"))
-    lang_choice = st.radio(
-        "",
-        options=["en", "ar"],
-        index=0 if st.session_state.lang == "en" else 1,
-        format_func=lambda x: tr("lang_en") if x == "en" else tr("lang_ar"),
-    )
-    st.session_state.lang = lang_choice
-
-    st.markdown("### 🧷 Vendor & Delivery")
-
-    # load master data once
-    try:
-        db, uid, password, models = get_odoo_connection(
-            ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_API_KEY
-        )
-        vendors = load_vendors(models, db, uid, password)
-        pickings = load_picking_types(models, db, uid, password)
-        distributions = load_distributions(models, db, uid, password)
-    except Exception as e:
-        st.error(f"Odoo master data error: {e}")
-        vendors, pickings, distributions = [], [], []
-
-    # Vendor select
-    if vendors:
-        vendor_names = [v["name"] for v in vendors]
-        vendor_choice = st.selectbox("Vendor", vendor_names, key="vendor_select")
-        st.session_state.vendor_id = next(
-            v["id"] for v in vendors if v["name"] == vendor_choice
-        )
-    else:
-        st.session_state.vendor_id = None
-
-    # Deliver To / Picking Type
-    if pickings:
-        picking_names = [p["name"] for p in pickings]
-        picking_choice = st.selectbox("Deliver To / Operation Type", picking_names, key="picking_select")
-        st.session_state.picking_type_id = next(
-            p["id"] for p in pickings if p["name"] == picking_choice
-        )
-    else:
-        st.session_state.picking_type_id = None
-
-    # Analytic Distribution
-    if distributions:
-        dist_names = [d["name"] for d in distributions]
-        dist_choice = st.selectbox("Analytic Distribution", dist_names, key="dist_select")
-        st.session_state.distribution_id = next(
-            d["id"] for d in distributions if d["name"] == dist_choice
-        )
-    else:
-        st.session_state.distribution_id = None
-
-    st.markdown("---")
-    st.markdown("### 🧾 " + tr("sidebar_defaults"))
-    DEFAULT_PARTNER_ID = st.number_input(tr("default_supplier"), min_value=1, value=1, step=1)
-
-    st.markdown("---")
-    with st.expander(tr("excel_help_title"), expanded=False):
-        st.write(tr("excel_help_text"))
-        st.caption(tr("excel_tip"))
-
-# back to tab 1 container
-with tab_upload:
     # Data preview
     if uploaded_file is not None:
         try:
@@ -639,7 +654,9 @@ if create_po_clicked:
             db, uid, password, models = get_odoo_connection(
                 ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_API_KEY
             )
-            product_id = get_product_id_by_code(models, db, uid, password, code, context=ctx)
+            product_id = get_product_id_by_code(
+                models, db, uid, password, code, context=ctx
+            )
         except Exception as e:
             product_id = False
             log_messages.append(f"⚠ Row {idx+2}: {code} lookup error: {e}")
@@ -660,8 +677,8 @@ if create_po_clicked:
                 "price_unit": price,
                 "name": name,
             }
-            # add analytic distribution if selected
             if st.session_state.distribution_id:
+                # change field name if your module uses something else
                 line_vals["analytic_distribution_id"] = st.session_state.distribution_id
             lines.append(line_vals)
             log_messages.append(f"✅ Row {idx+2}: {code} → Product ID {product_id}")
@@ -683,7 +700,7 @@ if create_po_clicked:
     st.session_state.log_messages = log_messages
     st.session_state.current_missing_index = 0
 
-# ========= STEP 2: Log tab + wizard =========
+# ========= STEP 2: Log tab + wizard + PO create =========
 with tab_log:
     st.markdown('<div class="glass-card">', unsafe_allow_html=True)
     log_area = st.empty()
@@ -707,7 +724,7 @@ with tab_log:
             f"**Picking Type:** {company_snapshot['picking_type_id']}"
         )
 
-    # ----- Missing product wizard (same as before, without changes) -----
+    # Missing products wizard (same as before)
     if missing_products:
         st.markdown(
             f'<div class="info-badge">Missing products: {len(missing_products)}</div>',
@@ -862,7 +879,7 @@ with tab_log:
         if company_snapshot:
             st.info("No missing products. You can now create Purchase Order.")
 
-    # ----- Final PO create button -----
+    # Final PO create button
     if lines:
         st.markdown("---")
         if st.button("🚀 Create Draft Purchase Order in Odoo (using matched lines)"):
@@ -882,11 +899,7 @@ with tab_log:
                 st.error(f"Odoo connection error (PO create): {e}")
             else:
                 order_lines = [
-                    (
-                        0,
-                        0,
-                        line,
-                    )
+                    (0, 0, line)
                     for line in lines
                 ]
                 po_vals = {
@@ -903,7 +916,9 @@ with tab_log:
                         [po_vals],
                         {"context": ctx},
                     )
-                    st.success(f"✅ {tr('success_po')} ({company_snapshot['company_name']}) : ID {po_id}")
+                    st.success(
+                        f"✅ {tr('success_po')} ({company_snapshot['company_name']}) : ID {po_id}"
+                    )
                 except Exception as e:
                     st.error(f"Odoo PO create error: {e}")
 
