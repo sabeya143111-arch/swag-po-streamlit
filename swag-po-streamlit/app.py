@@ -222,6 +222,25 @@ st.markdown(
         background: linear-gradient(135deg, #0ea5e9 0%, #6366f1 50%, #a855f7 100%);
         color: #f9fafb;
     }
+    .info-badge {
+        display:inline-block;
+        padding:0.2rem 0.7rem;
+        border-radius:999px;
+        border:1px solid rgba(148,163,184,0.5);
+        font-size:0.8rem;
+        color:#e5e7eb;
+        margin-top:0.4rem;
+    }
+    .warn-badge {
+        display:inline-block;
+        padding:0.35rem 0.7rem;
+        border-radius:999px;
+        border:1px solid rgba(248,250,252,0.4);
+        background:rgba(248,250,252,0.03);
+        font-size:0.8rem;
+        color:#fbbf24;
+        margin-top:0.2rem;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -305,7 +324,6 @@ def parse_swag_pdf_to_df(file_bytes: bytes) -> pd.DataFrame:
                 continue
             qty = float(qty_match.group(1))
 
-            # Model: last token that has at least one letter (so 1,2,3 skip)
             tokens = re.findall(r"[A-Za-z0-9\-]+", line)
             model_candidates = [t for t in tokens if re.search(r"[A-Za-z]", t)]
             model = model_candidates[-1] if model_candidates else line.strip()
@@ -557,7 +575,7 @@ with tab_upload:
 
     st.markdown("---")
 
-    if uploaded_file is not None:
+    if 'uploaded_file' in locals() and uploaded_file is not None:
         try:
             file_bytes = uploaded_file.read()
             if source == "excel":
