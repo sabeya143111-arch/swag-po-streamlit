@@ -63,14 +63,12 @@ T = {
     "excel_help_text": {
         "en": (
             "- Required Excel columns (exact names):\n"
-            "  - `order_line/product_id` → Internal Reference / SKU\n"
             "  - `order_line/name` → Description\n"
             "  - `order_line/product_uom_qty` → Quantity\n"
             "  - `order_line/price_unit` → Unit Price\n"
         ),
         "ar": (
             "- الأعمدة المطلوبة للإكسل (بنفس الأسماء):\n"
-            "  - `order_line/product_id` → الكود الداخلي / SKU\n"
             "  - `order_line/name` → الوصف\n"
             "  - `order_line/product_uom_qty` → الكمية\n"
             "  - `order_line/price_unit` → سعر الوحدة\n"
@@ -81,12 +79,12 @@ T = {
         "en": (
             "- PDF format same as SWAG sales invoice like sample S89631:\n"
             "  - Lines containing totals like `SR 2,070.00` and codes like `RVH010`.\n"
-            "  - Parser pulls: model code, description, quantity, price (without tax).\n"
+            "  - Parser pulls: description, quantity, price (without tax).\n"
         ),
         "ar": (
             "- شكل فاتورة PDF مثل فاتورة مبيعات SWAG (نموذج S89631):\n"
             "  - أسطر فيها الإجمالي مثل `SR 2,070.00` و كود مثل `RVH010`.\n"
-            "  - المعالج يستخرج: كود الموديل، الوصف، الكمية، السعر بدون ضريبة.\n"
+            "  - المعالج يستخرج: الوصف، الكمية، السعر بدون ضريبة.\n"
         ),
     },
     "excel_tip": {
@@ -306,23 +304,12 @@ def load_distributions(models, db, uid, password):
     )
     return dists
 
-def get_product_id_by_code(models, db, uid, password, code, context=None):
-    if context is None:
-        context = {}
-    product_ids = models.execute_kw(
-        db, uid, password,
-        "product.product", "search",
-        [[["default_code", "=", code]]],
-        {"limit": 1, "context": context},
-    )
-    return product_ids[0] if product_ids else False
-
-# ========= PDF PARSER (text-based for SWAG invoice) =========
+# ========= PDF PARSER (only 3 fields: name, qty, price) =========
 def parse_swag_pdf_to_df(file_bytes: bytes) -> pd.DataFrame:
     """
     Parse SWAG invoice PDF (like S89631) into DataFrame with:
-    order_line/product_id, order_line/name, order_line/product_uom_qty, order_line/price_unit
-    Uses raw text pattern matching, robust for your sample.
+    order_line/name, order_line/product_uom_qty, order_line/price_unit
+    Uses raw text pattern matching.
     """
     import re
     rows = []
@@ -337,33 +324,29 @@ def parse_swag_pdf_to_df(file_bytes: bytes) -> pd.DataFrame:
         if "SR" not in line:
             continue
         try:
-            # All SR numbers in line
             price_match = re.findall(r"SR\s*([\d,]+\.?\d*)", line)
             if len(price_match) < 1:
                 continue
             price_str = price_match[-1].replace(",", "")
             price = float(price_str)
 
-            # Quantity immediately after that price
             qty_match = re.search(rf"{price_str}[^\d]+(\d+)", line)
             if not qty_match:
                 continue
             qty = float(qty_match.group(1))
 
-            # Model code at end (letters/digits/-)
+            # Model only for cleaning description (not stored)
             model_match = re.search(r"([A-Za-z0-9\-]+)\s*$", line)
             if not model_match:
                 continue
             model = model_match.group(1)
 
-            # Description between quantity and model
             desc_part = line
             desc_part = re.sub(rf"^.*?{qty}\D+", "", desc_part)
             desc_part = desc_part.replace(model, "").strip()
 
             rows.append(
                 {
-                    "order_line/product_id": model,
                     "order_line/name": desc_part,
                     "order_line/product_uom_qty": qty,
                     "order_line/price_unit": price,
@@ -375,7 +358,6 @@ def parse_swag_pdf_to_df(file_bytes: bytes) -> pd.DataFrame:
     if not rows:
         return pd.DataFrame(
             columns=[
-                "order_line/product_id",
                 "order_line/name",
                 "order_line/product_uom_qty",
                 "order_line/price_unit",
@@ -396,7 +378,7 @@ with hero_left:
                 PURCHASE OPS CONTROL PANEL
             </div>
             <div style="font-size:1.05rem; margin-top:0.35rem; color:#e5e7eb;">
-                Scan supplier Excel or SWAG PDF invoice, validate SKUs, and spin up a clean draft PO.
+                Scan supplier Excel or SWAG PDF invoice, and spin up a clean draft PO from description, quantity, and price.
             </div>
         </div>
         """,
@@ -678,57 +660,36 @@ if create_po_clicked:
         st.error(f"Odoo connection error: {e}")
         st.stop()
 
-    code_col = "order_line/product_id"
     name_col = "order_line/name"
     qty_col = "order_line/product_uom_qty"
     price_col = "order_line/price_unit"
-    required_cols = [code_col, name_col, qty_col, price_col]
+    required_cols = [name_col, qty_col, price_col]
     missing_cols = [c for c in required_cols if c not in df.columns]
     if missing_cols:
         st.error(f"{tr('err_missing_cols')}: {missing_cols}")
         st.stop()
 
     lines = []
-    missing_products = []
     log_messages = []
 
     for idx, row in df.iterrows():
-        code = str(row[code_col]).strip()
         name = str(row[name_col])
         qty = float(row[qty_col])
         price = float(row[price_col])
 
-        try:
-            product_id = get_product_id_by_code(
-                models, db, uid, password, code, context=ctx
-            )
-        except Exception as e:
-            product_id = False
-            log_messages.append(f"⚠ Row {idx+2}: {code} lookup error: {e}")
+        line_vals = {
+            "name": name,
+            "product_qty": qty,
+            "price_unit": price,
+        }
+        if st.session_state.distribution_id:
+            line_vals["analytic_distribution_id"] = st.session_state.distribution_id
 
-        if not product_id:
-            missing_products.append(
-                {
-                    "Excel Row": idx + 2,
-                    "Internal Reference": code,
-                    "Description": name,
-                }
-            )
-            log_messages.append(f"❌ Row {idx+2}: {code} → {name} (NOT FOUND)")
-        else:
-            line_vals = {
-                "product_id": product_id,
-                "product_qty": qty,
-                "price_unit": price,
-                "name": name,
-            }
-            if st.session_state.distribution_id:
-                line_vals["analytic_distribution_id"] = st.session_state.distribution_id
-            lines.append(line_vals)
-            log_messages.append(f"✅ Row {idx+2}: {code} → Product ID {product_id}")
+        lines.append(line_vals)
+        log_messages.append(f"✅ Row {idx+2}: {name} → added without product_id")
 
     st.session_state.po_lines = lines
-    st.session_state.po_missing_products = missing_products
+    st.session_state.po_missing_products = []  # no lookup, so nothing missing
     st.session_state.company_snapshot = {
         "company_id": company_id,
         "company_name": company_name,
