@@ -4,6 +4,7 @@ from datetime import datetime
 import xmlrpc.client
 import io
 import pdfplumber
+from PIL import Image
 
 # ========= PAGE CONFIG =========
 st.set_page_config(
@@ -167,11 +168,11 @@ st.markdown(
     """
     <style>
     [data-testid="stAppViewContainer"] {
-        background: radial-gradient(circle at top left, #1f2937 0, #020617 45%, #000000 100%);
+        background: radial-gradient(circle at top left, #0f172a 0, #020617 40%, #111827 100%);
         color: #e5e7eb;
     }
     [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #020617, #111827);
+        background: linear-gradient(180deg, #020617, #1f2933);
         border-right: 1px solid rgba(148, 163, 184, 0.35);
     }
     .stSidebar .stMarkdown, .stSidebar label, .stSidebar input, .stSidebar span {
@@ -181,23 +182,25 @@ st.markdown(
         font-size: 2.6rem;
         font-weight: 800;
         margin-bottom: 0.2rem;
-        background: linear-gradient(120deg, #38bdf8, #a855f7, #f97316);
+        background: linear-gradient(120deg, #f97316, #fb7185, #38bdf8);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         letter-spacing: 0.03em;
+        text-align:center;
     }
     .sub-caption {
         font-size: 0.98rem;
-        color: #9ca3af;
+        color: #cbd5f5;
         margin-bottom: 0.9rem;
+        text-align:center;
     }
     .glass-card {
-        background: radial-gradient(circle at top left, rgba(15,23,42,0.96), rgba(15,23,42,0.86));
+        background: radial-gradient(circle at top left, rgba(15,23,42,0.95), rgba(15,23,42,0.85));
         border-radius: 18px;
         padding: 1.5rem 1.6rem;
         border: 1px solid rgba(148,163,184,0.45);
         box-shadow: 0 22px 60px rgba(15, 23, 42, 0.65);
-        backdrop-filter: blur(16px);
+        backdrop-filter: blur(18px);
     }
     .upload-box > div[data-testid="stFileUploader"] {
         background: rgba(15,23,42,0.9);
@@ -208,11 +211,11 @@ st.markdown(
     }
     .stButton>button {
         border-radius: 999px;
-        border: 1px solid rgba(56,189,248,0.9);
+        border: 1px solid rgba(248,250,252,0.2);
         padding: 0.5rem 1.4rem;
         font-size: 0.9rem;
         font-weight: 500;
-        background: linear-gradient(135deg, #0ea5e9 0%, #6366f1 50%, #a855f7 100%);
+        background: linear-gradient(135deg, #fb7185 0%, #f97316 40%, #22c55e 100%);
         color: #f9fafb;
     }
     .info-badge {
@@ -229,15 +232,31 @@ st.markdown(
         padding:0.35rem 0.7rem;
         border-radius:999px;
         border:1px solid rgba(248,250,252,0.4);
-        background:rgba(248,250,252,0.03);
+        background:rgba(248,250,252,0.06);
         font-size:0.8rem;
-        color:#fbbf24;
+        color:#facc15;
         margin-top:0.2rem;
     }
     </style>
     """,
     unsafe_allow_html=True,
 )
+
+# ========= CENTER LOGO =========
+logo_path = "outfit_logo.png"
+
+try:
+    logo = Image.open(logo_path)
+    st.markdown(
+        """
+        <div style="display:flex; justify-content:center; margin-top:0.8rem; margin-bottom:0.4rem;">
+        """,
+        unsafe_allow_html=True,
+    )
+    st.image(logo, width=260)
+    st.markdown("</div>", unsafe_allow_html=True)
+except Exception:
+    pass
 
 # ========= XML‑RPC HELPERS =========
 @st.cache_resource(show_spinner=False)
@@ -590,13 +609,11 @@ with tab_upload:
         try:
             file_bytes = uploaded_file.read()
             if source == "excel":
-                # single engine for xlsx/xls
                 df = pd.read_excel(io.BytesIO(file_bytes), engine="openpyxl")
                 st.session_state.pdf_total = None
             else:
                 df = parse_swag_pdf_to_df(file_bytes)
 
-            # normalize datatypes
             name_col = "order_line/name"
             qty_col = "order_line/product_uom_qty"
             price_col = "order_line/price_unit"
@@ -680,7 +697,6 @@ with tab_log:
     summary_placeholder = st.empty()
     missing_df_placeholder = st.empty()
 
-    # --------- show PO log (uploaded file) ----------
     lines = st.session_state.po_lines or []
     missing_products = st.session_state.po_missing_products or []
     log_messages = st.session_state.get("log_messages", [])
@@ -748,7 +764,6 @@ with tab_log:
                 except Exception as e:
                     st.error(f"Odoo PO create error: {e}")
 
-    # --------- Existing RFQ viewer + confirm (optional) ----------
     st.markdown("---")
     show_rfq = st.checkbox("Show Existing RFQs in Odoo", value=False)
 
