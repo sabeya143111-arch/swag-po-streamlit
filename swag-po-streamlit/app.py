@@ -284,18 +284,18 @@ def load_distributions(models, db, uid, password):
     )
     return dists
 
-# ---------- NEW: RFQ helpers ----------
+# ---------- RFQ helpers ----------
 def load_rfq(models, db, uid, password, company_id=None, limit=100):
-    domain = [['state', 'in', ['draft', 'sent']]]  # RFQ only
+    domain = [["state", "in", ["draft", "sent"]]]
     if company_id:
-        domain.append(['company_id', '=', company_id])
+        domain.append(["company_id", "=", company_id])
     rfqs = models.execute_kw(
         db, uid, password,
         "purchase.order", "search_read",
         [domain],
         {"fields": ["name", "partner_id", "date_order", "amount_total", "state", "company_id"], "limit": limit},
     )
-    return rfqs  # [web:29][web:38]
+    return rfqs
 
 def confirm_rfq(models, db, uid, password, rfq_ids, ctx=None):
     if not rfq_ids:
@@ -306,7 +306,7 @@ def confirm_rfq(models, db, uid, password, rfq_ids, ctx=None):
         "purchase.order", "button_confirm",
         [rfq_ids],
         {"context": ctx},
-    )  # [web:40]
+    )
 
 # ========= PDF PARSER =========
 def parse_swag_pdf_to_df(file_bytes: bytes) -> pd.DataFrame:
@@ -590,25 +590,33 @@ with tab_upload:
         try:
             file_bytes = uploaded_file.read()
             if source == "excel":
-                ext = uploaded_file.name.split(".")[-1].lower()
-                if ext == "xlsx":
-                    df = pd.read_excel(io.BytesIO(file_bytes), engine="openpyxl")
-                else:
-                    df = pd.read_excel(io.BytesIO(file_bytes), engine="xlrd")
+                # single engine for xlsx/xls
+                df = pd.read_excel(io.BytesIO(file_bytes), engine="openpyxl")
                 st.session_state.pdf_total = None
             else:
                 df = parse_swag_pdf_to_df(file_bytes)
+
+            # normalize datatypes
+            name_col = "order_line/name"
+            qty_col = "order_line/product_uom_qty"
+            price_col = "order_line/price_unit"
+
+            if name_col in df.columns:
+                df[name_col] = df[name_col].astype(str)
+            for col in [qty_col, price_col]:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors="coerce")
+
             st.session_state.df = df
 
             st.markdown("#### " + tr("step3_preview"))
 
-            # --- selectable dataframe for uploaded lines ---
             event = st.dataframe(
                 df,
                 use_container_width=True,
                 on_select="rerun",
                 selection_mode="multi-row",
-            )  # [web:11]
+            )
 
             total_rows = len(df)
             if st.session_state.selected_rows is None:
@@ -740,59 +748,68 @@ with tab_log:
                 except Exception as e:
                     st.error(f"Odoo PO create error: {e}")
 
-    # --------- Existing RFQ viewer + confirm ----------
+    # --------- Existing RFQ viewer + confirm (optional) ----------
     st.markdown("---")
-    st.markdown("### Existing RFQs in Odoo")
+    show_rfq = st.checkbox("Show Existing RFQs in Odoo", value=False)
 
-    if ODOO_URL and ODOO_DB and ODOO_USERNAME and ODOO_API_KEY and st.session_state.company_id:
-        try:
-            db, uid, password, models = get_odoo_connection(
-                ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_API_KEY
+    rfq_df = pd.DataFrame()
+    if show_rfq:
+        st.markdown("### Existing RFQs in Odoo")
+        if ODOO_URL and ODOO_DB and ODOO_USERNAME and ODOO_API_KEY and st.session_state.company_id:
+            try:
+                db, uid, password, models = get_odoo_connection(
+                    ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_API_KEY
+                )
+                rfqs = load_rfq(models, db, uid, password, st.session_state.company_id)
+                rfq_df = pd.DataFrame(rfqs)
+                st.session_state.rfq_df = rfq_df
+            except Exception as e:
+                st.error(f"RFQ load error: {e}")
+                rfq_df = pd.DataFrame()
+        else:
+            rfq_df = st.session_state.rfq_df if st.session_state.rfq_df is not None else pd.DataFrame()
+
+        if rfq_df is not None and not rfq_df.empty:
+            disp_df = rfq_df.copy()
+            disp_df["vendor"] = disp_df["partner_id"].apply(
+                lambda x: x[1] if isinstance(x, list) and len(x) > 1 else ""
             )
-            rfqs = load_rfq(models, db, uid, password, st.session_state.company_id)
-            rfq_df = pd.DataFrame(rfqs)
-            st.session_state.rfq_df = rfq_df
-        except Exception as e:
-            st.error(f"RFQ load error: {e}")
-            rfq_df = pd.DataFrame()
-    else:
-        rfq_df = st.session_state.rfq_df if st.session_state.rfq_df is not None else pd.DataFrame()
+            disp_df["company"] = disp_df["company_id"].apply(
+                lambda x: x[1] if isinstance(x, list) and len(x) > 1 else ""
+            )
+            disp_df_show = disp_df[["id", "name", "vendor", "date_order", "amount_total", "state", "company"]]
 
-    if rfq_df is not None and not rfq_df.empty:
-        disp_df = rfq_df.copy()
-        # partner & company are many2one -> [id, name]
-        disp_df["vendor"] = disp_df["partner_id"].apply(lambda x: x[1] if isinstance(x, list) and len(x) > 1 else "")
-        disp_df["company"] = disp_df["company_id"].apply(lambda x: x[1] if isinstance(x, list) and len(x) > 1 else "")
-        disp_df_show = disp_df[["id", "name", "vendor", "date_order", "amount_total", "state", "company"]]
+            rfq_event = st.dataframe(
+                disp_df_show,
+                use_container_width=True,
+                on_select="rerun",
+                selection_mode="multi-row",
+            )
 
-        rfq_event = st.dataframe(
-            disp_df_show,
-            use_container_width=True,
-            on_select="rerun",
-            selection_mode="multi-row",
-        )  # [web:11]
+            rfq_selected_rows = rfq_event.selection.rows if rfq_event is not None else []
+            if rfq_selected_rows:
+                st.session_state.selected_rfq_ids = disp_df_show.iloc[rfq_selected_rows]["id"].tolist()
 
-        rfq_selected_rows = rfq_event.selection.rows if rfq_event is not None else []
-        if rfq_selected_rows:
-            st.session_state.selected_rfq_ids = disp_df_show.iloc[rfq_selected_rows]["id"].tolist()
+            st.caption(f"Selected RFQs: {len(st.session_state.selected_rfq_ids)}")
 
-        st.caption(f"Selected RFQs: {len(st.session_state.selected_rfq_ids)}")
-
-        if st.button("✅ Confirm selected RFQs in Odoo"):
-            if not st.session_state.selected_rfq_ids:
-                st.warning("Select at least one RFQ to confirm.")
-            else:
-                try:
-                    db, uid, password, models = get_odoo_connection(
-                        ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_API_KEY
-                    )
-                    ctx = {"allowed_company_ids": [st.session_state.company_id], "company_id": st.session_state.company_id}
-                    confirm_rfq(models, db, uid, password, st.session_state.selected_rfq_ids, ctx)
-                    st.success(f"Confirmed {len(st.session_state.selected_rfq_ids)} RFQs.")
-                except Exception as e:
-                    st.error(f"Odoo RFQ confirm error: {e}")
-    else:
-        st.info("No RFQs found (draft/sent) for this company.")
+            if st.button("✅ Confirm selected RFQs in Odoo"):
+                if not st.session_state.selected_rfq_ids:
+                    st.warning("Select at least one RFQ to confirm.")
+                else:
+                    try:
+                        db, uid, password, models = get_odoo_connection(
+                            ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_API_KEY
+                        )
+                        ctx = {
+                            "allowed_company_ids": [st.session_state.company_id],
+                            "company_id": st.session_state.company_id,
+                        }
+                        confirm_rfq(models, db, uid, password, st.session_state.selected_rfq_ids, ctx)
+                        st.success(f"Confirmed {len(st.session_state.selected_rfq_ids)} RFQs.")
+                    except Exception as e:
+                        st.error(f"Odoo RFQ confirm error: {e}")
+        else:
+            st.info("No RFQs found (draft/sent) for this company.")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -841,6 +858,8 @@ if create_po_clicked:
 
     for idx in selected_idx_list:
         row = df.iloc[idx]
+        if pd.isna(row[qty_col]) or pd.isna(row[price_col]):
+            continue
         name = str(row[name_col])
         qty = float(row[qty_col])
         price = float(row[price_col])
