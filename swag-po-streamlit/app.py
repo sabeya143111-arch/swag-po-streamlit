@@ -5,6 +5,28 @@ import xmlrpc.client
 import io
 import pdfplumber
 from PIL import Image
+import requests
+import os
+
+# ========= PERPLEXITY AI HELPER =========
+PPLX_API_KEY = st.secrets.get("PERPLEXITY_API_KEY", os.getenv("PERPLEXITY_API_KEY", ""))
+
+def ask_perplexity(prompt: str) -> str:
+    if not PPLX_API_KEY:
+        return "Perplexity API key missing. Please set PERPLEXITY_API_KEY in Streamlit secrets."
+    url = "https://api.perplexity.ai/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {PPLX_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": "sonar-small-chat",
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    resp = requests.post(url, json=payload, headers=headers, timeout=60)
+    resp.raise_for_status()
+    data = resp.json()
+    return data["choices"][0]["message"]["content"]
 
 # ========= PAGE CONFIG =========
 st.set_page_config(
@@ -22,7 +44,7 @@ for key, default in {
     "company_name": "",
     "company_id": None,
     "df": None,
-    "source_type": None,  # "excel" or "pdf"
+    "source_type": None,
     "po_lines": None,
     "po_missing_products": None,
     "current_missing_index": 0,
@@ -30,9 +52,9 @@ for key, default in {
     "picking_type_id": None,
     "distribution_id": None,
     "pdf_total": None,
-    "selected_rows": None,   # uploaded file selected lines
-    "rfq_df": None,          # existing RFQ dataframe
-    "selected_rfq_ids": [],  # selected RFQ IDs
+    "selected_rows": None,
+    "rfq_df": None,
+    "selected_rfq_ids": [],
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -244,7 +266,6 @@ st.markdown(
 
 # ========= CENTER LOGO =========
 logo_path = "outfit_logo.png"
-
 try:
     logo = Image.open(logo_path)
     st.markdown(
@@ -908,3 +929,29 @@ if create_po_clicked:
     }
     st.session_state.log_messages = log_messages
     st.session_state.current_missing_index = 0
+
+    # ========= AI SUMMARY USING PERPLEXITY =========
+    if lines:
+        po_text_lines = [
+            f"{l['name']} | Qty: {l['product_qty']} | Price: {l['price_unit']}"
+            for l in lines
+        ]
+        po_text = "\n".join(po_text_lines)
+
+        ai_prompt = f"""
+        You are a purchasing assistant for a fashion retail company in Saudi Arabia.
+
+        Here are draft purchase order lines:
+        {po_text}
+
+        1) Give a short summary: total quantity and price range.
+        2) Highlight any suspicious lines (very high qty or unusual price).
+        3) Reply in very simple English with some Hindi/Urdu words mixed.
+        """
+
+        try:
+            ai_answer = ask_perplexity(ai_prompt)
+            st.markdown("### 🔍 AI Review of Draft PO")
+            st.write(ai_answer)
+        except Exception as e:
+            st.error(f"AI summary error: {e}")
